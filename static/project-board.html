@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Board - IBS HI Sale Platform</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-light: #64748b;
+    --border: #e2e8f0;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+    color: white; padding: 20px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; }
+  .header .subtitle { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+  .header .status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .header .dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; }
+  .header .dot.offline { background: #f87171; }
+
+  /* Layout */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+  /* API Key Bar */
+  .api-key-bar {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .api-key-bar label { font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .api-key-bar input {
+    flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-family: monospace; font-size: 14px;
+  }
+  .api-key-bar .role-badge {
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    background: #dbeafe; color: var(--primary);
+  }
+
+  /* Toolbar */
+  .toolbar {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .toolbar input[type="text"] {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 14px; min-width: 220px; flex: 1;
+  }
+  .toolbar select {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 14px; background: white; cursor: pointer;
+  }
+
+  .btn {
+    padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; color: white; background: var(--primary);
+    transition: background 0.15s;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn-outline {
+    background: transparent; color: var(--primary); border: 1px solid var(--primary);
+  }
+  .btn-outline:hover { background: #eff6ff; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  .view-toggle { display: flex; gap: 0; }
+  .view-toggle button {
+    padding: 7px 14px; border: 1px solid var(--border); background: white;
+    font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-light);
+  }
+  .view-toggle button:first-child { border-radius: 6px 0 0 6px; }
+  .view-toggle button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+  .view-toggle button.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+  .nav-link {
+    font-size: 13px; color: var(--primary); text-decoration: none; font-weight: 600;
+    white-space: nowrap;
+  }
+  .nav-link:hover { text-decoration: underline; }
+
+  .toolbar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+
+  /* Summary bar */
+  .summary-bar {
+    display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .summary-item {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 20px; text-align: center; flex: 1; min-width: 120px;
+  }
+  .summary-item .value { font-size: 24px; font-weight: 700; color: var(--primary); }
+  .summary-item .label { font-size: 12px; color: var(--text-light); margin-top: 2px; }
+
+  /* Cards Grid */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 1024px) { .cards-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .cards-grid { grid-template-columns: 1fr; } }
+
+  .project-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; cursor: pointer; transition: box-shadow 0.15s, transform 0.1s;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .project-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .card-code { font-weight: 700; font-size: 15px; color: var(--primary); }
+  .card-stale {
+    padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700;
+    background: #fecaca; color: #991b1b; text-transform: uppercase;
+  }
+
+  .card-customer { font-size: 13px; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-project { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .card-financials {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .card-financials .fin-item { font-size: 13px; }
+  .card-financials .fin-value { font-weight: 700; }
+  .card-financials .fin-label { color: var(--text-light); font-size: 11px; }
+
+  .card-progress { margin-top: 4px; }
+  .progress-bar-bg {
+    width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%; border-radius: 3px; transition: width 0.3s;
+  }
+
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    margin-top: 4px; font-size: 12px; color: var(--text-light);
+  }
+  .card-footer .assigned { font-weight: 500; }
+
+  /* Badges */
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-yellow { background: #fef3c7; color: #92400e; }
+  .badge-orange { background: #ffedd5; color: #9a3412; }
+  .badge-red { background: #fecaca; color: #991b1b; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+
+  /* Table */
+  .table-wrap {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; display: none;
+  }
+  .table-wrap.active { display: block; }
+  .cards-grid.active { display: grid; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: #f8fafc; text-align: left; padding: 10px 16px; font-weight: 600; color: var(--text-light); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 10px 16px; border-top: 1px solid var(--border); }
+  tr:hover { background: #f8fafc; }
+  tr { cursor: pointer; }
+
+  /* Empty / Loading */
+  .empty { padding: 60px 20px; text-align: center; color: var(--text-light); }
+  .empty .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty p { font-size: 14px; }
+  .loading { text-align: center; padding: 40px; color: var(--text-light); }
+  .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+    align-items: flex-start; justify-content: center; padding-top: 5vh; overflow-y: auto;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--card); border-radius: 12px; padding: 24px; width: 90%; max-width: 720px;
+    max-height: 88vh; overflow-y: auto; margin-bottom: 5vh;
+  }
+  .modal h3 { margin-bottom: 16px; font-size: 18px; }
+  .modal-close {
+    float: right; background: none; border: none; font-size: 22px; cursor: pointer;
+    color: var(--text-light); line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+
+  .detail-section { margin-bottom: 20px; }
+  .detail-section h4 { font-size: 14px; color: var(--text-light); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .detail-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px;
+  }
+  @media (max-width: 480px) { .detail-grid { grid-template-columns: 1fr; } }
+  .detail-field { font-size: 13px; }
+  .detail-field .dlabel { color: var(--text-light); font-size: 12px; }
+  .detail-field .dvalue { font-weight: 500; margin-top: 1px; }
+
+  .transition-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .transition-btns button {
+    padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--primary); color: var(--primary); background: white;
+    transition: all 0.15s;
+  }
+  .transition-btns button:hover { background: var(--primary); color: white; }
+
+  .sub-table { width: 100%; font-size: 13px; margin-top: 8px; }
+  .sub-table th { padding: 6px 10px; font-size: 11px; }
+  .sub-table td { padding: 6px 10px; }
+
+  .count-badge {
+    display: inline-block; background: var(--border); color: var(--text-light);
+    padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Project Board</h1>
+    <div class="subtitle">Pipeline Opportunities - IBS HI Sale Platform</div>
+  </div>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Connecting...</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- API Key Bar -->
+  <div class="api-key-bar">
+    <label>API Key:</label>
+    <input type="text" id="apiKey" value="dev-key-local-only" placeholder="Enter API key">
+    <span class="role-badge" id="roleBadge">ADMIN</span>
+    <button class="btn btn-sm" onclick="fetchOpportunities()">Connect</button>
+    <a href="/" class="nav-link">Home</a>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="Search customer, project, code..." oninput="applyClientFilters()">
+    <select id="stageFilter" onchange="fetchOpportunities()">
+      <option value="">All Stages</option>
+      <option value="PROSPECT">PROSPECT</option>
+      <option value="CONTACTED">CONTACTED</option>
+      <option value="RFQ_RECEIVED">RFQ_RECEIVED</option>
+      <option value="COSTING">COSTING</option>
+      <option value="QUOTED">QUOTED</option>
+      <option value="NEGOTIATION">NEGOTIATION</option>
+      <option value="WON">WON</option>
+      <option value="LOST">LOST</option>
+      <option value="IN_PROGRESS">IN_PROGRESS</option>
+    </select>
+    <select id="productFilter" onchange="fetchOpportunities()">
+      <option value="">All Products</option>
+      <option value="HRSG">HRSG</option>
+      <option value="DIVERTER">DIVERTER</option>
+      <option value="SHIPBUILDING">SHIPBUILDING</option>
+      <option value="PV">PV</option>
+      <option value="HANDLING">HANDLING</option>
+      <option value="DUCT">DUCT</option>
+      <option value="OTHER">OTHER</option>
+    </select>
+    <select id="sortSelect" onchange="applyClientFilters()">
+      <option value="value">Sort: Value</option>
+      <option value="tons">Sort: Tons</option>
+      <option value="updated">Sort: Updated</option>
+    </select>
+    <div class="toolbar-right">
+      <div class="view-toggle">
+        <button class="active" id="btnCards" onclick="setView('cards')">Cards</button>
+        <button id="btnTable" onclick="setView('table')">Table</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Bar -->
+  <div class="summary-bar" id="summaryBar">
+    <div class="summary-item"><div class="value" id="sumTotal">-</div><div class="label">Projects</div></div>
+    <div class="summary-item"><div class="value" id="sumValue">-</div><div class="label">Total Value</div></div>
+    <div class="summary-item"><div class="value" id="sumTons">-</div><div class="label">Total Tons</div></div>
+    <div class="summary-item"><div class="value" id="sumStale">-</div><div class="label">Stale</div></div>
+  </div>
+
+  <!-- Cards View -->
+  <div class="cards-grid active" id="cardsView">
+    <div class="loading" style="grid-column:1/-1"><div class="spinner"></div><p>Loading...</p></div>
+  </div>
+
+  <!-- Table View -->
+  <div class="table-wrap" id="tableView">
+    <table>
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Customer</th>
+          <th>Project</th>
+          <th>Value</th>
+          <th>Tons</th>
+          <th>GM%</th>
+          <th>Stage</th>
+          <th>Assigned</th>
+          <th>Last Activity</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detailModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+    <div id="detailContent">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+const STAGES = ['PROSPECT','CONTACTED','RFQ_RECEIVED','COSTING','QUOTED','NEGOTIATION','WON','LOST','IN_PROGRESS'];
+const STAGE_INDEX = {};
+STAGES.forEach((s, i) => STAGE_INDEX[s] = i + 1);
+
+let allOpportunities = [];
+let filteredOpportunities = [];
+let currentView = 'cards';
+
+function headers() {
+  return { 'X-API-Key': document.getElementById('apiKey').value, 'Content-Type': 'application/json' };
+}
+
+async function api(path, opts) {
+  const res = await fetch(BASE + path, { headers: headers(), ...(opts || {}) });
+  return { status: res.status, data: await res.json().catch(function() { return null; }) };
+}
+
+// ---- Number formatting ----
+
+function formatValue(v) {
+  if (v == null || v === 0) return '-';
+  var n = Number(v);
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return '$' + Math.round(n / 1000) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+function formatTons(t) {
+  if (t == null || t === 0) return '-';
+  return Number(t).toLocaleString('en-US') + 't';
+}
+
+function formatGM(g) {
+  if (g == null) return '-';
+  return Math.round(Number(g)) + '%';
+}
+
+function relativeTime(dateStr) {
+  if (!dateStr) return '-';
+  var d = new Date(dateStr);
+  var now = new Date();
+  var diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  var days = Math.floor(diff / 86400);
+  if (days === 1) return '1d ago';
+  if (days < 30) return days + 'd ago';
+  if (days < 365) return Math.floor(days / 30) + 'mo ago';
+  return Math.floor(days / 365) + 'y ago';
+}
+
+function truncate(str, max) {
+  if (!str) return '';
+  return str.length > max ? str.substring(0, max) + '...' : str;
+}
+
+// ---- Stage helpers ----
+
+function stageProgress(stage) {
+  var idx = STAGE_INDEX[stage] || 0;
+  return (idx / 8) * 100;
+}
+
+function stageColor(stage) {
+  var idx = STAGE_INDEX[stage] || 0;
+  if (stage === 'LOST') return '#dc2626';
+  if (idx >= 7) return '#16a34a';
+  if (idx >= 5) return '#d97706';
+  return '#2563eb';
+}
+
+function stageBadgeClass(stage) {
+  if (stage === 'LOST') return 'badge-red';
+  var idx = STAGE_INDEX[stage] || 0;
+  if (idx >= 7) return 'badge-green';
+  if (idx >= 5) return 'badge-orange';
+  return 'badge-blue';
+}
+
+// ---- Fetch data ----
+
+async function fetchOpportunities() {
+  var params = [];
+  var stage = document.getElementById('stageFilter').value;
+  var pg = document.getElementById('productFilter').value;
+  if (stage) params.push('stage=' + encodeURIComponent(stage));
+  if (pg) params.push('product_group=' + encodeURIComponent(pg));
+  params.push('limit=200');
+  var url = '/api/v1/opportunities' + (params.length ? '?' + params.join('&') : '');
+
+  document.getElementById('cardsView').innerHTML = '<div class="loading" style="grid-column:1/-1"><div class="spinner"></div></div>';
+  document.getElementById('tableBody').innerHTML = '<tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>';
+
+  var r = await api(url);
+  if (!r.data || !r.data.items) {
+    allOpportunities = [];
+  } else {
+    allOpportunities = r.data.items;
+  }
+  applyClientFilters();
+  checkHealth();
+}
+
+function applyClientFilters() {
+  var search = document.getElementById('searchInput').value.toLowerCase().trim();
+  var sortBy = document.getElementById('sortSelect').value;
+
+  filteredOpportunities = allOpportunities.filter(function(o) {
+    if (!search) return true;
+    var haystack = [
+      (o.customer_name || ''),
+      (o.project_name || ''),
+      (o.pl_hd || '')
+    ].join(' ').toLowerCase();
+    return haystack.indexOf(search) !== -1;
+  });
+
+  filteredOpportunities.sort(function(a, b) {
+    if (sortBy === 'value') return (Number(b.contract_value_usd) || 0) - (Number(a.contract_value_usd) || 0);
+    if (sortBy === 'tons') return (Number(b.weight_ton) || 0) - (Number(a.weight_ton) || 0);
+    if (sortBy === 'updated') {
+      var da = a.updated_at || a.last_activity_date || '';
+      var db = b.updated_at || b.last_activity_date || '';
+      return db.localeCompare(da);
+    }
+    return 0;
+  });
+
+  updateSummary();
+  renderCards();
+  renderTable();
+}
+
+function updateSummary() {
+  var total = filteredOpportunities.length;
+  var totalValue = 0;
+  var totalTons = 0;
+  var staleCount = 0;
+  filteredOpportunities.forEach(function(o) {
+    totalValue += Number(o.contract_value_usd) || 0;
+    totalTons += Number(o.weight_ton) || 0;
+    if (o.stale_flag === 1 || o.stale_flag === true) staleCount++;
+  });
+  document.getElementById('sumTotal').textContent = total;
+  document.getElementById('sumValue').textContent = formatValue(totalValue);
+  document.getElementById('sumTons').textContent = formatTons(totalTons);
+  document.getElementById('sumStale').textContent = staleCount;
+  if (staleCount > 0) {
+    document.getElementById('sumStale').style.color = 'var(--danger)';
+  } else {
+    document.getElementById('sumStale').style.color = 'var(--primary)';
+  }
+}
+
+// ---- Render Cards ----
+
+function renderCards() {
+  var container = document.getElementById('cardsView');
+  if (filteredOpportunities.length === 0) {
+    container.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">&#128202;</div><p>No opportunities found</p></div>';
+    return;
+  }
+  container.innerHTML = filteredOpportunities.map(function(o) {
+    var code = o.pl_hd || 'No Code';
+    var isStale = o.stale_flag === 1 || o.stale_flag === true;
+    var pct = stageProgress(o.stage);
+    var color = stageColor(o.stage);
+    var badgeClass = stageBadgeClass(o.stage);
+    var lastAct = o.last_activity_date || o.updated_at;
+
+    return '<div class="project-card" onclick="openDetail(\'' + o.id + '\')">' +
+      '<div class="card-header">' +
+        '<span class="card-code">' + escH(code) + '</span>' +
+        (isStale ? '<span class="card-stale">STALE</span>' : '') +
+      '</div>' +
+      '<div class="card-customer">' + escH(truncate(o.customer_name, 25)) + '</div>' +
+      '<div class="card-project">' + escH(truncate(o.project_name, 35)) + '</div>' +
+      '<div class="card-financials">' +
+        '<div class="fin-item"><div class="fin-value">' + formatValue(o.contract_value_usd) + '</div><div class="fin-label">Value</div></div>' +
+        '<div class="fin-item"><div class="fin-value">' + formatTons(o.weight_ton) + '</div><div class="fin-label">Tons</div></div>' +
+        '<div class="fin-item"><div class="fin-value">' + formatGM(o.gm_percent) + '</div><div class="fin-label">GM</div></div>' +
+      '</div>' +
+      '<div class="card-progress">' +
+        '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+      '</div>' +
+      '<div style="margin-top:2px"><span class="badge ' + badgeClass + '">' + escH(o.stage) + '</span></div>' +
+      '<div class="card-footer">' +
+        '<span class="assigned">' + escH(o.assigned_to || 'Unassigned') + '</span>' +
+        '<span>' + relativeTime(lastAct) + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ---- Render Table ----
+
+function renderTable() {
+  var tbody = document.getElementById('tableBody');
+  if (filteredOpportunities.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-light)">No opportunities found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filteredOpportunities.map(function(o) {
+    var code = o.pl_hd || 'No Code';
+    var badgeClass = stageBadgeClass(o.stage);
+    var lastAct = o.last_activity_date || o.updated_at;
+    var isStale = o.stale_flag === 1 || o.stale_flag === true;
+    return '<tr onclick="openDetail(\'' + o.id + '\')">' +
+      '<td><strong>' + escH(code) + '</strong>' + (isStale ? ' <span class="badge badge-red" style="font-size:10px">STALE</span>' : '') + '</td>' +
+      '<td>' + escH(truncate(o.customer_name, 25)) + '</td>' +
+      '<td>' + escH(truncate(o.project_name, 35)) + '</td>' +
+      '<td>' + formatValue(o.contract_value_usd) + '</td>' +
+      '<td>' + formatTons(o.weight_ton) + '</td>' +
+      '<td>' + formatGM(o.gm_percent) + '</td>' +
+      '<td><span class="badge ' + badgeClass + '">' + escH(o.stage) + '</span></td>' +
+      '<td>' + escH(o.assigned_to || '-') + '</td>' +
+      '<td>' + relativeTime(lastAct) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ---- View Toggle ----
+
+function setView(view) {
+  currentView = view;
+  document.getElementById('btnCards').classList.toggle('active', view === 'cards');
+  document.getElementById('btnTable').classList.toggle('active', view === 'table');
+  var cv = document.getElementById('cardsView');
+  var tv = document.getElementById('tableView');
+  if (view === 'cards') {
+    cv.style.display = 'grid';
+    tv.style.display = 'none';
+  } else {
+    cv.style.display = 'none';
+    tv.style.display = 'block';
+  }
+}
+
+// ---- Detail Modal ----
+
+async function openDetail(id) {
+  var modal = document.getElementById('detailModal');
+  var content = document.getElementById('detailContent');
+  modal.classList.add('show');
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  var r = await api('/api/v1/opportunities/' + id);
+  if (r.status !== 200 || !r.data) {
+    content.innerHTML = '<p style="color:var(--danger)">Failed to load opportunity details</p>';
+    return;
+  }
+
+  var opp = r.data.opportunity || r.data;
+  var emails = r.data.emails || [];
+  var tasks = r.data.tasks || [];
+  var allowed = r.data.allowed_next_stages || [];
+
+  var code = opp.pl_hd || 'No Code';
+  var isStale = opp.stale_flag === 1 || opp.stale_flag === true;
+  var pct = stageProgress(opp.stage);
+  var color = stageColor(opp.stage);
+  var badgeClass = stageBadgeClass(opp.stage);
+
+  var html = '<h3>' + escH(code) + ' - ' + escH(opp.project_name || '') +
+    (isStale ? ' <span class="badge badge-red">STALE</span>' : '') +
+    '</h3>';
+
+  // Stage progress
+  html += '<div style="margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' +
+      '<span class="badge ' + badgeClass + '">' + escH(opp.stage) + '</span>' +
+      '<span style="font-size:12px;color:var(--text-light)">Step ' + (STAGE_INDEX[opp.stage] || '?') + ' of 8</span>' +
+    '</div>' +
+    '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+  '</div>';
+
+  // Core fields
+  html += '<div class="detail-section"><h4>Project Details</h4><div class="detail-grid">';
+  html += detailField('Customer', opp.customer_name);
+  html += detailField('Customer ID', opp.customer_id);
+  html += detailField('Product Group', opp.product_group);
+  html += detailField('Win Probability', opp.win_probability != null ? opp.win_probability + '%' : '-');
+  html += detailField('Assigned To', opp.assigned_to);
+  html += detailField('Estimated Signing', opp.estimated_signing);
+  html += detailField('Start Date', opp.start_date);
+  html += detailField('Duration', opp.duration_months ? opp.duration_months + ' months' : '-');
+  html += '</div></div>';
+
+  // Financials
+  html += '<div class="detail-section"><h4>Financials</h4><div class="detail-grid">';
+  html += detailField('Contract Value (USD)', formatValue(opp.contract_value_usd));
+  html += detailField('Contract Value (VND)', opp.contract_value_vnd ? Number(opp.contract_value_vnd).toLocaleString('vi-VN') + ' VND' : '-');
+  html += detailField('Weight', formatTons(opp.weight_ton));
+  html += detailField('Unit Price (USD)', opp.unit_price_usd ? '$' + Number(opp.unit_price_usd).toLocaleString('en-US') : '-');
+  html += detailField('GM%', formatGM(opp.gm_percent));
+  html += detailField('GM Value (USD)', formatValue(opp.gm_value_usd));
+  html += detailField('Material Cost', formatValue(opp.material_cost_usd));
+  html += detailField('Labor Cost', formatValue(opp.labor_cost_usd));
+  html += '</div></div>';
+
+  // Scope
+  if (opp.scope_en || opp.scope_vn) {
+    html += '<div class="detail-section"><h4>Scope</h4>';
+    if (opp.scope_en) html += '<p style="font-size:13px;margin-bottom:4px"><strong>EN:</strong> ' + escH(opp.scope_en) + '</p>';
+    if (opp.scope_vn) html += '<p style="font-size:13px"><strong>VN:</strong> ' + escH(opp.scope_vn) + '</p>';
+    html += '</div>';
+  }
+
+  // Notes
+  if (opp.notes) {
+    html += '<div class="detail-section"><h4>Notes</h4><p style="font-size:13px">' + escH(opp.notes) + '</p></div>';
+  }
+
+  // Allowed transitions
+  if (allowed.length > 0) {
+    html += '<div class="detail-section"><h4>Stage Transitions</h4>' +
+      '<p style="font-size:12px;color:var(--text-light);margin-bottom:6px">Move to:</p>' +
+      '<div class="transition-btns">';
+    allowed.forEach(function(s) {
+      html += '<button onclick="transitionStage(\'' + opp.id + '\',\'' + s + '\')">' + escH(s) + '</button>';
+    });
+    html += '</div></div>';
+  }
+
+  // Linked emails
+  html += '<div class="detail-section"><h4>Emails<span class="count-badge">' + emails.length + '</span></h4>';
+  if (emails.length === 0) {
+    html += '<p style="font-size:13px;color:var(--text-light)">No linked emails</p>';
+  } else {
+    html += '<table class="sub-table"><thead><tr><th>Subject</th><th>Type</th><th>From</th><th>Date</th></tr></thead><tbody>';
+    emails.forEach(function(e) {
+      html += '<tr><td>' + escH(e.subject || '-') + '</td>' +
+        '<td><span class="badge badge-blue">' + escH(e.email_type || '-') + '</span></td>' +
+        '<td>' + escH(e.from_name || e.from_address || '-') + '</td>' +
+        '<td>' + relativeTime(e.received_at) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  }
+  html += '</div>';
+
+  // Linked tasks
+  html += '<div class="detail-section"><h4>Tasks<span class="count-badge">' + tasks.length + '</span></h4>';
+  if (tasks.length === 0) {
+    html += '<p style="font-size:13px;color:var(--text-light)">No linked tasks</p>';
+  } else {
+    html += '<table class="sub-table"><thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Due</th><th>Assigned</th></tr></thead><tbody>';
+    tasks.forEach(function(t) {
+      var sc = { PENDING:'badge-yellow', IN_PROGRESS:'badge-blue', COMPLETED:'badge-green', OVERDUE:'badge-red', CANCELLED:'badge-gray' };
+      html += '<tr><td>' + escH(t.title || '-') + '</td>' +
+        '<td><span class="badge badge-blue">' + escH(t.task_type || '-') + '</span></td>' +
+        '<td><span class="badge ' + (sc[t.status] || 'badge-gray') + '">' + escH(t.status || '-') + '</span></td>' +
+        '<td>' + (t.due_date ? new Date(t.due_date).toLocaleDateString('vi-VN') : '-') + '</td>' +
+        '<td>' + escH(t.assigned_to || '-') + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  }
+  html += '</div>';
+
+  // Timestamps
+  html += '<div class="detail-section" style="border-top:1px solid var(--border);padding-top:12px"><div class="detail-grid">';
+  html += detailField('Created', opp.created_at ? new Date(opp.created_at).toLocaleString('vi-VN') : '-');
+  html += detailField('Updated', opp.updated_at ? new Date(opp.updated_at).toLocaleString('vi-VN') : '-');
+  html += detailField('Last Activity', opp.last_activity_date ? new Date(opp.last_activity_date).toLocaleString('vi-VN') : '-');
+  html += detailField('Competitor', opp.competitor);
+  html += detailField('Loss Reason', opp.loss_reason);
+  html += '</div></div>';
+
+  content.innerHTML = html;
+}
+
+function detailField(label, value) {
+  return '<div class="detail-field"><div class="dlabel">' + escH(label) + '</div><div class="dvalue">' + escH(value || '-') + '</div></div>';
+}
+
+async function transitionStage(oppId, newStage) {
+  var r = await api('/api/v1/opportunities/' + oppId, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage: newStage })
+  });
+  if (r.status === 200) {
+    openDetail(oppId);
+    fetchOpportunities();
+  } else {
+    var msg = (r.data && r.data.detail) ? r.data.detail : 'Transition failed';
+    alert(msg);
+  }
+}
+
+function closeDetailModal() {
+  document.getElementById('detailModal').classList.remove('show');
+}
+
+// Close modal on overlay click
+document.getElementById('detailModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDetailModal();
+});
+
+// Close modal on Escape
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeDetailModal();
+});
+
+// ---- Helpers ----
+
+function escH(str) {
+  if (str == null) return '';
+  var d = document.createElement('div');
+  d.textContent = String(str);
+  return d.innerHTML;
+}
+
+// ---- Health check ----
+
+async function checkHealth() {
+  try {
+    var r = await fetch('/health');
+    var d = await r.json();
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = 'Online | ' + d.db_type + ' | v' + d.version;
+  } catch (e) {
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('statusText').textContent = 'Offline';
+  }
+}
+
+// ---- Init ----
+fetchOpportunities();
+</script>
+</body>
+</html>

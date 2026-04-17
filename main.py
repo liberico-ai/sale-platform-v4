@@ -8,6 +8,7 @@ import os
 import structlog
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -20,7 +21,7 @@ try:
     from .auth import require_auth, require_write, require_admin
     from .routers import (
         health, customers, opportunities, emails, tasks,
-        dashboard, mailboxes, users, pm_integration
+        dashboard, mailboxes, users, pm_integration, nas_files
     )
 except ImportError:
     import config
@@ -28,7 +29,7 @@ except ImportError:
     from auth import require_auth, require_write, require_admin
     from routers import (
         health, customers, opportunities, emails, tasks,
-        dashboard, mailboxes, users, pm_integration
+        dashboard, mailboxes, users, pm_integration, nas_files
     )
 
 # Initialize scheduler (placeholder for now)
@@ -61,10 +62,12 @@ async def lifespan(app: FastAPI):
             from .workers.gmail_worker import sync_gmail
             from .workers.sla_worker import check_sla
             from .workers.stale_worker import detect_stale_deals
+            from .workers.followup_worker import process_follow_ups
         except ImportError:
             from workers.gmail_worker import sync_gmail
             from workers.sla_worker import check_sla
             from workers.stale_worker import detect_stale_deals
+            from workers.followup_worker import process_follow_ups
 
         # Gmail sync — every 5 minutes (if email sync enabled)
         if config.ENABLE_EMAIL_SYNC:
@@ -90,6 +93,14 @@ async def lifespan(app: FastAPI):
             max_instances=1, replace_existing=True,
         )
         logger.info("worker_registered", worker="stale_detection", schedule="daily_08:00")
+
+        # Follow-up schedule check — every 60 minutes
+        scheduler.add_job(
+            process_follow_ups, "interval", minutes=60,
+            id="followup_check", name="Follow-up Schedule Check",
+            max_instances=1, replace_existing=True,
+        )
+        logger.info("worker_registered", worker="followup_check", interval="60min")
 
         scheduler.start()
         logger.info("scheduler_started", job_count=len(scheduler.get_jobs()))
@@ -149,19 +160,27 @@ admin_dep = [Depends(require_admin)]
 # ROUTER REGISTRATION
 # ═══════════════════════════════════════════════════════════════
 
+# Serve static files (dashboard UI)
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir, html=True), name="static")
+
 # Public endpoints (no auth required)
 app.include_router(health.router)
 
 # Read-access endpoints (any valid API key)
-app.include_router(customers.router, prefix="/api/v1", dependencies=auth_dep)
-app.include_router(opportunities.router, prefix="/api/v1", dependencies=auth_dep)
-app.include_router(emails.router, prefix="/api/v1", dependencies=auth_dep)
-app.include_router(tasks.router, prefix="/api/v1", dependencies=auth_dep)
-app.include_router(dashboard.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(customers.router, prefix="/api/v1", dependencies=auth_dep)       # READ-ONLY
+app.include_router(dashboard.router, prefix="/api/v1", dependencies=auth_dep)       # READ-ONLY
+
+# Write-access endpoints for core entities (ADMIN or MANAGER key)
+app.include_router(opportunities.router, prefix="/api/v1", dependencies=write_dep)  # CREATE/UPDATE
+app.include_router(emails.router, prefix="/api/v1", dependencies=write_dep)         # SYNC/UPDATE
+app.include_router(tasks.router, prefix="/api/v1", dependencies=write_dep)          # CREATE/UPDATE
 
 # Write-access endpoints (ADMIN or MANAGER key)
 app.include_router(mailboxes.router, prefix="/api/v1", dependencies=write_dep)
 app.include_router(users.router, prefix="/api/v1", dependencies=write_dep)
+app.include_router(nas_files.router, prefix="/api/v1", dependencies=write_dep)
 
 # PM integration (read access, writes internally validated)
 app.include_router(pm_integration.router, prefix="/api/v1", dependencies=auth_dep)

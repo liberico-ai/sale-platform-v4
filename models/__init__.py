@@ -11,6 +11,7 @@ from .mailbox import MailboxCreate, MailboxUpdate
 from .user_role import UserRoleCreate, UserRoleUpdate
 from .dashboard import PipelineKPI, TaskStats, EmailStats
 from .pm_bridge import PMTaskCreate, DraftReplyRequest
+from .nas_file import NasFileCreate, NasFileResponse
 
 __all__ = [
     "CustomerCreate",
@@ -30,4 +31,6 @@ __all__ = [
     "EmailStats",
     "PMTaskCreate",
     "DraftReplyRequest",
+    "NasFileCreate",
+    "NasFileResponse",
 ]

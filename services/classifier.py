@@ -117,6 +117,12 @@ def classify_email(parsed_email: Dict[str, Any]) -> Tuple[str, float]:
             weighted_score = score * rule.get("weight", 0.5)
             scores[rule["type"]] = weighted_score
 
+    # Domain-based scoring for INTERNAL emails
+    from_address = parsed_email.get("from_address", "").lower()
+    if "@ibs.com.vn" in from_address:
+        current_internal_score = scores.get("INTERNAL", 0)
+        scores["INTERNAL"] = current_internal_score + (3 * 0.6)
+
     # Determine best match
     if not scores:
         return (FALLBACK_RULE["type"], FALLBACK_RULE["weight"])

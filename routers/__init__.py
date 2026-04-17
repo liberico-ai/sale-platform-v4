@@ -12,6 +12,7 @@ from . import dashboard
 from . import mailboxes
 from . import users
 from . import pm_integration
+from . import nas_files
 
 __all__ = [
     "health",
@@ -23,4 +24,5 @@ __all__ = [
     "mailboxes",
     "users",
     "pm_integration",
+    "nas_files",
 ]
