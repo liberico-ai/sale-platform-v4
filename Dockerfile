@@ -27,7 +27,11 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Project code uses `from ..` relative imports in routers/, so it must be
+# imported as a package. Drop the source into /app/ibs_sale and mark it a
+# package; CMD then runs `uvicorn ibs_sale.main:app`.
+COPY . /app/ibs_sale/
+RUN touch /app/ibs_sale/__init__.py
 
 RUN groupadd --system --gid 1000 app \
  && useradd  --system --uid 1000 --gid app --home-dir /app --shell /usr/sbin/nologin app \
@@ -41,4 +45,4 @@ EXPOSE 8767
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:${SALE_PORT}/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8767"]
+CMD ["python", "-m", "uvicorn", "ibs_sale.main:app", "--host", "0.0.0.0", "--port", "8767"]
