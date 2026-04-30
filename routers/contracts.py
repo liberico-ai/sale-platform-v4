@@ -203,3 +203,184 @@ async def list_khkd_targets():
         "SELECT * FROM sale_khkd_targets ORDER BY fiscal_year DESC"
     )
     return {"items": items, "count": len(items)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Active Contracts — sale_active_contracts (14 records)
+# Registered AFTER the literal sub-resources so /milestones, /settlements,
+# /change-orders, /khkd-targets win path-matching.
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("")
+async def list_active_contracts(
+    contract_status: Optional[str] = Query(None),
+    project_manager: Optional[str] = Query(None),
+    customer_id: Optional[str] = Query(None),
+    product_type: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List active contracts (live PO registry)."""
+    where = []
+    params: list = []
+    if contract_status:
+        where.append("ac.contract_status = ?")
+        params.append(contract_status)
+    if project_manager:
+        where.append("ac.project_manager = ?")
+        params.append(project_manager)
+    if customer_id:
+        where.append("ac.customer_id = ?")
+        params.append(customer_id)
+    if product_type:
+        where.append("ac.product_type = ?")
+        params.append(product_type)
+    where_sql = " AND ".join(where) if where else "1=1"
+
+    total = query(
+        f"SELECT COUNT(*) as cnt FROM sale_active_contracts ac WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
+    items = query(
+        f"""
+        SELECT ac.*, c.name AS linked_customer_name
+        FROM sale_active_contracts ac
+        LEFT JOIN sale_customers c ON c.id = ac.customer_id
+        WHERE {where_sql}
+        ORDER BY ac.latest_activity DESC, ac.start_date DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    )
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+def _resolve_contract_opportunities(contract: dict) -> list:
+    """Best-effort opportunity lookup for an active contract.
+
+    sale_active_contracts has no FK to sale_opportunities — match on
+    customer_id + project_name (case-insensitive LIKE).
+    """
+    if not contract:
+        return []
+    customer_id = contract.get("customer_id")
+    project_name = contract.get("project_name")
+    if not project_name:
+        return []
+    where = ["LOWER(o.project_name) LIKE LOWER(?)"]
+    params: list = [f"%{project_name}%"]
+    if customer_id:
+        where.append("o.customer_id = ?")
+        params.append(customer_id)
+    return query(
+        f"SELECT o.id, o.project_name, o.stage "
+        f"FROM sale_opportunities o "
+        f"WHERE {' AND '.join(where)}",
+        params,
+    )
+
+
+@router.get("/{contract_id}")
+async def get_active_contract(contract_id: str):
+    """Active contract detail with best-effort milestone + settlement join."""
+    contract = query(
+        """
+        SELECT ac.*, c.name AS linked_customer_name,
+               c.country AS customer_country
+        FROM sale_active_contracts ac
+        LEFT JOIN sale_customers c ON c.id = ac.customer_id
+        WHERE ac.id = ?
+        """,
+        [contract_id],
+        one=True,
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    opps = _resolve_contract_opportunities(dict(contract))
+    opp_ids = [o["id"] for o in opps]
+
+    if opp_ids:
+        placeholders = ",".join("?" * len(opp_ids))
+        milestones = query(
+            f"SELECT * FROM sale_contract_milestones "
+            f"WHERE opportunity_id IN ({placeholders}) "
+            f"ORDER BY milestone_number ASC",
+            opp_ids,
+        )
+        settlements = query(
+            f"SELECT * FROM sale_settlements "
+            f"WHERE opportunity_id IN ({placeholders})",
+            opp_ids,
+        )
+        change_orders = query(
+            f"SELECT * FROM sale_change_orders "
+            f"WHERE opportunity_id IN ({placeholders}) "
+            f"ORDER BY change_order_number ASC",
+            opp_ids,
+        )
+    else:
+        milestones = []
+        settlements = []
+        change_orders = []
+
+    return {
+        "contract": dict(contract),
+        "linked_opportunities": opps,
+        "milestones": milestones,
+        "settlements": settlements,
+        "change_orders": change_orders,
+    }
+
+
+@router.get("/{contract_id}/milestones")
+async def list_active_contract_milestones(contract_id: str):
+    """Milestones associated with an active contract (via project-name match)."""
+    contract = query(
+        "SELECT * FROM sale_active_contracts WHERE id = ?",
+        [contract_id],
+        one=True,
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    opps = _resolve_contract_opportunities(dict(contract))
+    if not opps:
+        return {"contract_id": contract_id, "items": [], "count": 0}
+
+    opp_ids = [o["id"] for o in opps]
+    placeholders = ",".join("?" * len(opp_ids))
+    items = query(
+        f"SELECT * FROM sale_contract_milestones "
+        f"WHERE opportunity_id IN ({placeholders}) "
+        f"ORDER BY milestone_number ASC",
+        opp_ids,
+    )
+    return {"contract_id": contract_id, "items": items, "count": len(items)}
+
+
+@router.get("/{contract_id}/settlements")
+async def list_active_contract_settlements(contract_id: str):
+    """Settlements associated with an active contract (via project-name match)."""
+    contract = query(
+        "SELECT * FROM sale_active_contracts WHERE id = ?",
+        [contract_id],
+        one=True,
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    opps = _resolve_contract_opportunities(dict(contract))
+    if not opps:
+        return {"contract_id": contract_id, "items": [], "count": 0}
+
+    opp_ids = [o["id"] for o in opps]
+    placeholders = ",".join("?" * len(opp_ids))
+    items = query(
+        f"SELECT * FROM sale_settlements "
+        f"WHERE opportunity_id IN ({placeholders})",
+        opp_ids,
+    )
+    return {"contract_id": contract_id, "items": items, "count": len(items)}

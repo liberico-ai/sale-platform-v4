@@ -429,6 +429,85 @@ async def get_summary():
         one=True,
     ) or {}
 
+    # ── Quotation win rate (sale_quotation_history) ─────────────
+    quotation_stats = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN UPPER(status) = 'WON' THEN 1 ELSE 0 END) AS won,
+            SUM(CASE WHEN UPPER(status) = 'LOST' THEN 1 ELSE 0 END) AS lost,
+            COALESCE(SUM(CASE WHEN UPPER(status) = 'WON'
+                              THEN value_usd END), 0) AS won_value_usd
+        FROM sale_quotation_history
+        """,
+        one=True,
+    ) or {}
+    qh_total = quotation_stats.get("total", 0) or 0
+    qh_won = quotation_stats.get("won", 0) or 0
+    quotation_win_rate_pct = round(qh_won / qh_total * 100, 1) if qh_total > 0 else 0.0
+
+    # ── Active contracts (count + invoice-side value via milestones) ──
+    active_contracts = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN contract_status = 'ACTIVE' THEN 1 ELSE 0 END) AS active_count
+        FROM sale_active_contracts
+        """,
+        one=True,
+    ) or {}
+
+    # sale_active_contracts has no numeric value column (value_notes is TEXT).
+    # Approximate active-contract value via milestone invoice totals.
+    contract_value = query(
+        """
+        SELECT
+            COALESCE(SUM(invoice_amount_usd), 0) AS total_invoice_amount_usd,
+            COALESCE(SUM(payment_amount), 0) AS total_payment_amount_usd
+        FROM sale_contract_milestones
+        """,
+        one=True,
+    ) or {}
+
+    interactions_stats = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN interaction_type = 'CLIENT_VISIT' THEN 1 ELSE 0 END) AS visits,
+            SUM(CASE WHEN interaction_type = 'MEETING' THEN 1 ELSE 0 END) AS meetings,
+            SUM(CASE WHEN interaction_type = 'CALL' THEN 1 ELSE 0 END) AS calls
+        FROM sale_customer_interactions
+        """,
+        one=True,
+    ) or {}
+
+    recent_interactions = query(
+        """
+        SELECT ci.id, ci.interaction_type, ci.interaction_date, ci.subject,
+               ci.outcome, c.name AS customer_name
+        FROM sale_customer_interactions ci
+        LEFT JOIN sale_customers c ON c.id = ci.customer_id
+        ORDER BY ci.interaction_date DESC
+        LIMIT 5
+        """
+    )
+
+    contacts_stats = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN is_primary = 1 THEN 1 ELSE 0 END) AS primary_count,
+            SUM(CASE WHEN email IS NOT NULL AND email != '' THEN 1 ELSE 0 END) AS with_email
+        FROM sale_customer_contacts
+        """,
+        one=True,
+    ) or {}
+
+    customers_stats = query(
+        "SELECT COUNT(*) AS total FROM sale_customers",
+        one=True,
+    ) or {}
+
     # ── Record counts (32 tables) ───────────────────────────────
     record_counts = {}
     for table in _SUMMARY_TABLES:
@@ -445,6 +524,18 @@ async def get_summary():
     return {
         "timestamp": now,
         "fiscal_year": khkd.get("fiscal_year", "N/A"),
+        "totals": {
+            "customers": customers_stats.get("total", 0),
+            "contacts": contacts_stats.get("total", 0),
+            "opportunities": pipeline.get("total_opps", 0),
+            "quotations": qh_total,
+            "contracts": active_contracts.get("total", 0),
+            "interactions": interactions_stats.get("total", 0),
+            "milestones": milestones.get("total", 0),
+            "settlements": settlements.get("total", 0),
+            "emails": emails.get("total", 0),
+            "tasks": tasks.get("total", 0),
+        },
         "pipeline": {
             "total_opportunities": pipeline.get("total_opps", 0),
             "weighted_value_usd": round(weighted, 2),
@@ -465,6 +556,26 @@ async def get_summary():
                 (weighted / target_revenue * 100) if target_revenue > 0 else 0, 1
             ),
         },
+        "quotations": {
+            "total": qh_total,
+            "won": qh_won,
+            "lost": quotation_stats.get("lost", 0),
+            "won_value_usd": quotation_stats.get("won_value_usd", 0),
+            "win_rate_pct": quotation_win_rate_pct,
+        },
+        "contracts": {
+            "total": active_contracts.get("total", 0),
+            "active_count": active_contracts.get("active_count", 0),
+            "milestone_invoice_total_usd": contract_value.get(
+                "total_invoice_amount_usd", 0
+            ),
+            "milestone_payment_total_usd": contract_value.get(
+                "total_payment_amount_usd", 0
+            ),
+        },
+        "interactions": dict(interactions_stats),
+        "recent_interactions": recent_interactions,
+        "contacts": dict(contacts_stats),
         "milestones": dict(milestones),
         "settlements": dict(settlements),
         "tasks": dict(tasks),

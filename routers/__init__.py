@@ -14,6 +14,9 @@ from . import users
 from . import pm_integration
 from . import contracts
 from . import intelligence
+from . import contacts
+from . import quotations
+from . import interactions
 
 __all__ = [
     "health",
@@ -27,4 +30,7 @@ __all__ = [
     "pm_integration",
     "contracts",
     "intelligence",
+    "contacts",
+    "quotations",
+    "interactions",
 ]

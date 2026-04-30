@@ -22,6 +22,7 @@ try:
         health, customers, opportunities, emails, tasks,
         dashboard, mailboxes, users, pm_integration,
         contracts, intelligence,
+        contacts, quotations, interactions,
     )
 except ImportError:
     import config
@@ -31,6 +32,7 @@ except ImportError:
         health, customers, opportunities, emails, tasks,
         dashboard, mailboxes, users, pm_integration,
         contracts, intelligence,
+        contacts, quotations, interactions,
     )
 
 # Initialize scheduler (placeholder for now)
@@ -162,6 +164,9 @@ app.include_router(tasks.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(dashboard.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(contracts.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(intelligence.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(contacts.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(quotations.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(interactions.router, prefix="/api/v1", dependencies=auth_dep)
 
 # Write-access endpoints (ADMIN or MANAGER key)
 app.include_router(mailboxes.router, prefix="/api/v1", dependencies=write_dep)

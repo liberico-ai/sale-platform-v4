@@ -215,4 +215,6 @@ Verify: 32 tables, ~6,700 records, 0 integrity errors.
 4. Update dashboard.py to query across all populated tables
 
 ### For detailed sprint plan: see SPRINT1_PLAN.md
+### For full NAS gap analysis + module roadmap: see SPRINT1_PLAN.md (NAS Business Process Map section)
+### Reference: docs/Sale_Platform_v4_Gap_Analysis_28Apr2026.docx — 13 NAS business functions, 31% coverage, 5-phase roadmap
 

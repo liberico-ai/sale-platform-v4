@@ -97,52 +97,9 @@ async def search_customers(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
-# ═══════════════════════════════════════════════════════════════
-# Interactions — sale_customer_interactions (175 records)
-# Cross-customer browsing endpoint comes BEFORE /{customer_id}
-# so FastAPI literal-matches "/interactions" first.
-# ═══════════════════════════════════════════════════════════════
-
-@router.get("/interactions/list")
-async def list_interactions(
-    customer_id: Optional[str] = Query(None),
-    interaction_type: Optional[str] = Query(None, description="MEETING, CALL, VISIT, EMAIL, etc."),
-    outcome: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-):
-    """List customer interactions across all customers."""
-    where = []
-    params: list = []
-    if customer_id:
-        where.append("ci.customer_id = ?")
-        params.append(customer_id)
-    if interaction_type:
-        where.append("ci.interaction_type = ?")
-        params.append(interaction_type)
-    if outcome:
-        where.append("ci.outcome = ?")
-        params.append(outcome)
-    where_sql = " AND ".join(where) if where else "1=1"
-
-    total = query(
-        f"SELECT COUNT(*) as cnt FROM sale_customer_interactions ci WHERE {where_sql}",
-        params,
-    )[0]["cnt"]
-
-    items = query(
-        f"""
-        SELECT ci.*, c.name AS customer_name
-        FROM sale_customer_interactions ci
-        LEFT JOIN sale_customers c ON c.id = ci.customer_id
-        WHERE {where_sql}
-        ORDER BY ci.interaction_date DESC
-        LIMIT ? OFFSET ?
-        """,
-        params + [limit, offset],
-    )
-
-    return {"total": total, "items": items, "limit": limit, "offset": offset}
+# Cross-customer interactions, contacts, quotations live in their own routers
+# (/interactions, /contacts, /quotations). This file only owns the
+# /customers/{id}/* nested sub-resources below.
 
 
 @router.get("/{customer_id}")
@@ -219,3 +176,70 @@ async def list_customer_interactions(
         [customer_id, limit, offset],
     )
     return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+@router.get("/{customer_id}/quotations")
+async def list_customer_quotations(
+    customer_id: str,
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Quotation history for a customer.
+
+    Matches by linked customer_id OR by customer_code (legacy import rows
+    weren't always backfilled with the canonical customer_id).
+    """
+    customer = query(
+        "SELECT id, code FROM sale_customers WHERE id = ?",
+        [customer_id],
+        one=True,
+    )
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    where = ["(qh.customer_id = ? OR qh.customer_code = ?)"]
+    params: list = [customer_id, customer.get("code") or ""]
+    if status:
+        where.append("qh.status = ?")
+        params.append(status)
+    where_sql = " AND ".join(where)
+
+    total = query(
+        f"SELECT COUNT(*) as cnt FROM sale_quotation_history qh WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
+    items = query(
+        f"""
+        SELECT qh.* FROM sale_quotation_history qh
+        WHERE {where_sql}
+        ORDER BY qh.date_offer DESC, qh.quotation_no DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    )
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+@router.get("/{customer_id}/contracts")
+async def list_customer_contracts(customer_id: str):
+    """Active contracts linked to this customer."""
+    customer = query(
+        "SELECT id FROM sale_customers WHERE id = ?",
+        [customer_id],
+        one=True,
+    )
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    items = query(
+        """
+        SELECT * FROM sale_active_contracts
+        WHERE customer_id = ?
+        ORDER BY latest_activity DESC, start_date DESC
+        """,
+        [customer_id],
+    )
+    return {"customer_id": customer_id, "items": items, "count": len(items)}

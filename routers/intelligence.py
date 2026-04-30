@@ -23,6 +23,7 @@ router = APIRouter(prefix="/intelligence", tags=["Intelligence"])
 # sale_market_signals — external signals (12 records)
 # ═══════════════════════════════════════════════════════════════
 
+@router.get("/signals")
 @router.get("/market-signals")
 async def list_market_signals(
     signal_type: Optional[str] = Query(None),
@@ -97,6 +98,7 @@ async def get_market_signal(signal_id: str):
 # sale_product_opportunities — fit-score matrix (51 records)
 # ═══════════════════════════════════════════════════════════════
 
+@router.get("/products")
 @router.get("/product-opportunities")
 async def list_product_opportunities(
     customer_id: Optional[str] = Query(None),
