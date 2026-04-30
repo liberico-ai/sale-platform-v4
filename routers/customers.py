@@ -3,15 +3,25 @@ Customers Router
 Manages customer data, search, and customer details with contacts and opportunities.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from datetime import datetime
 import uuid
 
+import structlog
+
 try:
     from ..database import query, execute
+    from ..auth import require_write, require_admin
+    from ..services.audit import log_status_change, log_change
+    from ..models.customer import CustomerCreate, CustomerUpdate
 except ImportError:
     from database import query, execute
+    from auth import require_write, require_admin
+    from services.audit import log_status_change, log_change
+    from models.customer import CustomerCreate, CustomerUpdate
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -243,3 +253,176 @@ async def list_customer_contracts(customer_id: str):
         [customer_id],
     )
     return {"customer_id": customer_id, "items": items, "count": len(items)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Writes — POST / PATCH / soft DELETE
+# ═══════════════════════════════════════════════════════════════
+
+def _generate_code_from_name(name: str) -> str:
+    """Auto-derive a customer code from name when caller leaves it blank.
+
+    First 3 alphanumeric uppercased + numeric suffix to avoid collisions.
+    Falls back to UUID slice if name has no usable letters.
+    """
+    letters = "".join(ch for ch in name if ch.isalnum())[:3].upper()
+    if not letters:
+        letters = uuid.uuid4().hex[:3].upper()
+
+    # Find next sequence not in use
+    for n in range(1, 1000):
+        candidate = f"{letters}{n:03d}"
+        existing = query(
+            "SELECT 1 FROM sale_customers WHERE code = ?",
+            [candidate],
+            one=True,
+        )
+        if not existing:
+            return candidate
+    # Last-ditch unique fallback
+    return f"{letters}-{uuid.uuid4().hex[:6].upper()}"
+
+
+@router.post("", dependencies=[Depends(require_write)])
+async def create_customer(payload: CustomerCreate):
+    """Create a new customer.
+
+    Auto-generates a customer code when none is supplied.
+    Returns 409 when the requested code is already in use.
+    """
+    if payload.code:
+        existing = query(
+            "SELECT id FROM sale_customers WHERE code = ?",
+            [payload.code],
+            one=True,
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Customer code already in use: {payload.code}",
+            )
+        code = payload.code
+    else:
+        code = _generate_code_from_name(payload.name)
+
+    customer_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    status = payload.status or "ACTIVE"
+
+    execute(
+        """
+        INSERT INTO sale_customers
+            (id, code, name, country, region, address, website,
+             business_description, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            customer_id, code, payload.name, payload.country, payload.region,
+            payload.address, payload.website, payload.business_description,
+            status, now, now,
+        ],
+    )
+
+    logger.info(
+        "customer_created",
+        customer_id=customer_id,
+        code=code,
+        name=payload.name,
+    )
+
+    return {
+        "id": customer_id,
+        "code": code,
+        "name": payload.name,
+        "status": status,
+        "message": f"Customer created: {payload.name} ({code})",
+    }
+
+
+@router.patch("/{customer_id}", dependencies=[Depends(require_write)])
+async def update_customer(customer_id: str, payload: CustomerUpdate):
+    """Update an existing customer.
+
+    Audit-logs status changes. Only fields explicitly set in the payload
+    are updated.
+    """
+    existing = query(
+        "SELECT * FROM sale_customers WHERE id = ?",
+        [customer_id],
+        one=True,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    data = (
+        payload.model_dump(exclude_unset=True)
+        if hasattr(payload, "model_dump")
+        else payload.dict(exclude_unset=True)
+    )
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Code uniqueness check when changing code
+    if "code" in data and data["code"] and data["code"] != existing.get("code"):
+        clash = query(
+            "SELECT id FROM sale_customers WHERE code = ? AND id != ?",
+            [data["code"], customer_id],
+            one=True,
+        )
+        if clash:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Customer code already in use: {data['code']}",
+            )
+
+    sets = [f"{k} = ?" for k in data.keys()]
+    params = list(data.values()) + [datetime.now().isoformat(), customer_id]
+    sets.append("updated_at = ?")
+
+    execute(
+        f"UPDATE sale_customers SET {', '.join(sets)} WHERE id = ?",
+        params,
+    )
+
+    if "status" in data and data["status"] != existing.get("status"):
+        log_status_change(
+            "customer", customer_id,
+            existing.get("status") or "", data["status"],
+        )
+
+    return {"id": customer_id, "status": "ok", "updated_fields": list(data.keys())}
+
+
+@router.delete("/{customer_id}", dependencies=[Depends(require_admin)])
+async def soft_delete_customer(customer_id: str):
+    """Soft-delete: set status='DELETED', do NOT remove the row.
+
+    Hard delete is intentionally unsupported — child records (opportunities,
+    contacts, interactions, quotations) reference this customer.
+    """
+    existing = query(
+        "SELECT id, status FROM sale_customers WHERE id = ?",
+        [customer_id],
+        one=True,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    if existing.get("status") == "DELETED":
+        return {"id": customer_id, "status": "already_deleted"}
+
+    now = datetime.now().isoformat()
+    execute(
+        "UPDATE sale_customers SET status = 'DELETED', updated_at = ? WHERE id = ?",
+        [now, customer_id],
+    )
+
+    log_status_change(
+        "customer", customer_id,
+        existing.get("status") or "", "DELETED",
+    )
+
+    logger.info("customer_soft_deleted", customer_id=customer_id)
+
+    return {"id": customer_id, "status": "deleted",
+            "message": "Customer deactivated (soft delete)"}

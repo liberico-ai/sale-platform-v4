@@ -19,7 +19,8 @@ try:
     from .database import init_db, close_db_connection, close_all_connections
     from .auth import require_auth, require_write, require_admin
     from .routers import (
-        health, customers, opportunities, emails, tasks,
+        health, auth_router,
+        customers, opportunities, emails, tasks,
         dashboard, mailboxes, users, pm_integration,
         contracts, intelligence,
         contacts, quotations, interactions,
@@ -29,7 +30,8 @@ except ImportError:
     from database import init_db, close_db_connection, close_all_connections
     from auth import require_auth, require_write, require_admin
     from routers import (
-        health, customers, opportunities, emails, tasks,
+        health, auth_router,
+        customers, opportunities, emails, tasks,
         dashboard, mailboxes, users, pm_integration,
         contracts, intelligence,
         contacts, quotations, interactions,
@@ -155,6 +157,9 @@ admin_dep = [Depends(require_admin)]
 
 # Public endpoints (no auth required)
 app.include_router(health.router)
+
+# Auth introspection — own auth check inside the route
+app.include_router(auth_router.router, prefix="/api/v1")
 
 # Read-access endpoints (any valid API key)
 app.include_router(customers.router, prefix="/api/v1", dependencies=auth_dep)

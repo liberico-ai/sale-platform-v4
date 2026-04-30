@@ -4,7 +4,7 @@ Manages creation, updates, stale deal tracking, with state machine
 validation for stage transitions and audit logging for financial changes.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
@@ -14,6 +14,7 @@ import structlog
 
 try:
     from ..database import query, execute
+    from ..auth import require_write
     from ..services.state_machine import (
         validate_opportunity_transition,
         get_allowed_opportunity_transitions,
@@ -26,6 +27,7 @@ try:
     )
 except ImportError:
     from database import query, execute
+    from auth import require_write
     from services.state_machine import (
         validate_opportunity_transition,
         get_allowed_opportunity_transitions,
@@ -148,7 +150,7 @@ async def get_stale_deals(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_write)])
 async def create_opportunity(opp: OpportunityCreate):
     """Create a new sales opportunity.
 
@@ -183,7 +185,7 @@ async def create_opportunity(opp: OpportunityCreate):
     return {"id": opp_id, "status": "ok", "message": f"Opportunity created: {opp.project_name}"}
 
 
-@router.patch("/{opp_id}")
+@router.patch("/{opp_id}", dependencies=[Depends(require_write)])
 async def update_opportunity(opp_id: str, update: OpportunityUpdate):
     """Update an existing opportunity with state machine validation.
 

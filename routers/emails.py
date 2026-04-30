@@ -3,7 +3,7 @@ Emails Router
 Manages email data, filtering, threading, Gmail sync, and task creation from emails.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
@@ -11,8 +11,10 @@ import uuid
 
 try:
     from ..database import query, execute
+    from ..auth import require_write
 except ImportError:
     from database import query, execute
+    from auth import require_write
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
@@ -142,7 +144,7 @@ async def get_email_detail(email_id: str):
     }
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(require_write)])
 async def trigger_gmail_sync():
     """Trigger Gmail sync.
 
@@ -170,7 +172,7 @@ async def trigger_gmail_sync():
     }
 
 
-@router.patch("/{email_id}")
+@router.patch("/{email_id}", dependencies=[Depends(require_write)])
 async def update_email(email_id: str, update: EmailUpdate):
     """
     Update email: classify, link to opportunity, mark read/actioned.
@@ -226,7 +228,7 @@ async def update_email(email_id: str, update: EmailUpdate):
     return {"id": email_id, "status": "ok"}
 
 
-@router.post("/{email_id}/create-task")
+@router.post("/{email_id}/create-task", dependencies=[Depends(require_write)])
 async def create_task_from_email(email_id: str, task: TaskFromEmailCreate):
     """
     Create a task from email context, auto-linking email_id and opportunity_id.
