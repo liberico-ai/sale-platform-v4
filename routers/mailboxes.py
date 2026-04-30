@@ -6,9 +6,13 @@ Manages monitored mailboxes and OAuth flow for Gmail integration.
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from ..database import query, execute
 from datetime import datetime
 import uuid
+
+try:
+    from ..database import query, execute
+except ImportError:
+    from database import query, execute
 
 router = APIRouter(prefix="/mailboxes", tags=["Mailboxes"])
 

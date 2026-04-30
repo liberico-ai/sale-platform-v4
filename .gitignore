@@ -29,6 +29,9 @@ env/
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+*.db-journal
 sale_platform.db
 ibs_sale_v5.db
 

@@ -12,6 +12,8 @@ from . import dashboard
 from . import mailboxes
 from . import users
 from . import pm_integration
+from . import contracts
+from . import intelligence
 
 __all__ = [
     "health",
@@ -23,4 +25,6 @@ __all__ = [
     "mailboxes",
     "users",
     "pm_integration",
+    "contracts",
+    "intelligence",
 ]

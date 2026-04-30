@@ -8,11 +8,16 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 import httpx
-from ..database import query, execute
-from .. import config
 from datetime import datetime
 import uuid
 import json
+
+try:
+    from ..database import query, execute
+    from .. import config
+except ImportError:
+    from database import query, execute
+    import config
 
 router = APIRouter(prefix="/pm-integration", tags=["PM Integration"])
 

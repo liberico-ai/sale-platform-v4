@@ -6,17 +6,25 @@ Manages email data, filtering, threading, Gmail sync, and task creation from ema
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from ..database import query, execute
 from datetime import datetime
 import uuid
+
+try:
+    from ..database import query, execute
+except ImportError:
+    from database import query, execute
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
 
 class EmailUpdate(BaseModel):
-    """Model for updating an email."""
-    email_classification: Optional[str] = None
+    """Model for updating an email.
+
+    Schema column is `email_type` (10 canonical types from config.EMAIL_TYPES).
+    """
+    email_type: Optional[str] = None
     opportunity_id: Optional[str] = None
+    customer_id: Optional[str] = None
     is_read: Optional[bool] = None
     is_actioned: Optional[bool] = None
 
@@ -136,25 +144,29 @@ async def get_email_detail(email_id: str):
 
 @router.post("/sync")
 async def trigger_gmail_sync():
-    """
-    Trigger Gmail sync (calls gmail_worker to fetch new emails).
-    
+    """Trigger Gmail sync.
+
+    Records the trigger in sale_pm_sync_log so workers can pick it up
+    on the next poll. Actual fetch happens in workers/gmail_worker.py.
+
     Returns:
-        dict: Sync status and message
+        dict: Sync ID and status.
     """
     sync_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
-    
-    # Log sync initiation
+
     execute("""
-        INSERT INTO sale_sync_log (id, sync_type, status, triggered_by, created_at)
-        VALUES (?, 'GMAIL_SYNC', 'PENDING', 'API', ?)
-    """, [sync_id, now])
-    
+        INSERT INTO sale_pm_sync_log
+            (id, direction, source_entity, source_id,
+             target_entity, sync_type, action, status, triggered_by, created_at)
+        VALUES (?, 'PM_TO_SALE', 'gmail', ?, 'sale_emails',
+                'GMAIL_SYNC', 'TRIGGER', 'PENDING', 'API', ?)
+    """, [sync_id, sync_id, now])
+
     return {
         "sync_id": sync_id,
         "status": "initiated",
-        "message": "Gmail sync triggered successfully"
+        "message": "Gmail sync triggered — worker will pick up on next poll",
     }
 
 
@@ -184,26 +196,33 @@ async def update_email(email_id: str, update: EmailUpdate):
     
     sets = []
     params = []
-    
-    if update.email_classification is not None:
-        sets.append("email_classification = ?")
-        params.append(update.email_classification)
+
+    if update.email_type is not None:
+        sets.append("email_type = ?")
+        params.append(update.email_type)
     if update.opportunity_id is not None:
         sets.append("opportunity_id = ?")
         params.append(update.opportunity_id)
+    if update.customer_id is not None:
+        sets.append("customer_id = ?")
+        params.append(update.customer_id)
     if update.is_read is not None:
         sets.append("is_read = ?")
         params.append(1 if update.is_read else 0)
     if update.is_actioned is not None:
         sets.append("is_actioned = ?")
         params.append(1 if update.is_actioned else 0)
-    
-    sets.append("updated_at = ?")
+
+    if not sets:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # sale_emails has no updated_at column — use processed_at as touch marker
+    sets.append("processed_at = ?")
     params.append(datetime.now().isoformat())
     params.append(email_id)
-    
+
     execute(f"UPDATE sale_emails SET {', '.join(sets)} WHERE id = ?", params)
-    
+
     return {"id": email_id, "status": "ok"}
 
 
@@ -252,5 +271,119 @@ async def create_task_from_email(email_id: str, task: TaskFromEmailCreate):
         INSERT INTO sale_email_activity_log (id, email_id, opportunity_id, task_id, action_type, action_by, created_at)
         VALUES (?, ?, ?, ?, 'TASK_CREATED', ?, ?)
     """, [str(uuid.uuid4()), email_id, opportunity_id, task_id, task.assigned_to, now])
-    
+
     return {"id": task_id, "status": "ok", "message": f"Task created from email: {task.title}"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# sale_email_labels — Gmail label catalog (47 records)
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/labels/list")
+async def list_email_labels(
+    customer_id: Optional[str] = Query(None, description="Filter by linked customer"),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List Gmail labels indexed from ibshi@ mailbox.
+
+    Each label maps to a customer thread and tracks conversation_count.
+    """
+    where = []
+    params: list = []
+    if customer_id:
+        where.append("label.customer_id = ?")
+        params.append(customer_id)
+    where_sql = " AND ".join(where) if where else "1=1"
+
+    total = query(
+        f"SELECT COUNT(*) as cnt FROM sale_email_labels label WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
+    items = query(
+        f"""
+        SELECT label.*, c.name AS customer_name
+        FROM sale_email_labels label
+        LEFT JOIN sale_customers c ON c.id = label.customer_id
+        WHERE {where_sql}
+        ORDER BY label.conversation_count DESC, label.label_name ASC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    )
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+# ═══════════════════════════════════════════════════════════════
+# sale_email_full — Full ibshi@ email mapping (108 records)
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/full/list")
+async def list_email_full(
+    project_code: Optional[str] = Query(None),
+    customer_name: Optional[str] = Query(None),
+    action_required: Optional[str] = Query(None, description="URGENT, ACTION_IBS, FOLLOW_UP, PENDING_PAYMENT, PENDING_APPROVAL, NONE"),
+    priority: Optional[str] = Query(None, description="HIGH, MEDIUM, LOW"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List the full ibshi@ email mapping with action / priority filters."""
+    where = []
+    params: list = []
+    if project_code:
+        where.append("project_code = ?")
+        params.append(project_code)
+    if customer_name:
+        where.append("customer_name LIKE ?")
+        params.append(f"%{customer_name}%")
+    if action_required:
+        where.append("action_required = ?")
+        params.append(action_required)
+    if priority:
+        where.append("priority = ?")
+        params.append(priority)
+    where_sql = " AND ".join(where) if where else "1=1"
+
+    total = query(
+        f"SELECT COUNT(*) as cnt FROM sale_email_full WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
+    items = query(
+        f"""
+        SELECT * FROM sale_email_full
+        WHERE {where_sql}
+        ORDER BY
+            CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+            email_date DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    )
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+@router.get("/views/follow-ups")
+async def list_follow_ups(limit: int = Query(50, ge=1, le=200)):
+    """Pending follow-ups via v_sale_followups view (action_required != NONE).
+
+    Two-segment path so it doesn't collide with `/emails/{email_id}`.
+    """
+    items = query(
+        "SELECT * FROM v_sale_followups LIMIT ?",
+        [limit],
+    )
+    return {"items": items, "count": len(items)}
+
+
+@router.get("/views/project-activity")
+async def list_project_activity(limit: int = Query(50, ge=1, le=200)):
+    """Project-level email activity via v_project_activity view."""
+    items = query(
+        "SELECT * FROM v_project_activity LIMIT ?",
+        [limit],
+    )
+    return {"items": items, "count": len(items)}

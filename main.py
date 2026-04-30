@@ -20,7 +20,8 @@ try:
     from .auth import require_auth, require_write, require_admin
     from .routers import (
         health, customers, opportunities, emails, tasks,
-        dashboard, mailboxes, users, pm_integration
+        dashboard, mailboxes, users, pm_integration,
+        contracts, intelligence,
     )
 except ImportError:
     import config
@@ -28,7 +29,8 @@ except ImportError:
     from auth import require_auth, require_write, require_admin
     from routers import (
         health, customers, opportunities, emails, tasks,
-        dashboard, mailboxes, users, pm_integration
+        dashboard, mailboxes, users, pm_integration,
+        contracts, intelligence,
     )
 
 # Initialize scheduler (placeholder for now)
@@ -158,6 +160,8 @@ app.include_router(opportunities.router, prefix="/api/v1", dependencies=auth_dep
 app.include_router(emails.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(tasks.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(dashboard.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(contracts.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(intelligence.router, prefix="/api/v1", dependencies=auth_dep)
 
 # Write-access endpoints (ADMIN or MANAGER key)
 app.include_router(mailboxes.router, prefix="/api/v1", dependencies=write_dep)

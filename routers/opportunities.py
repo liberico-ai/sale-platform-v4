@@ -12,17 +12,30 @@ import uuid
 
 import structlog
 
-from ..database import query, execute
-from ..services.state_machine import (
-    validate_opportunity_transition,
-    get_allowed_opportunity_transitions,
-    InvalidTransitionError,
-)
-from ..services.audit import (
-    log_status_change,
-    log_financial_change,
-    AUDITED_OPPORTUNITY_FIELDS,
-)
+try:
+    from ..database import query, execute
+    from ..services.state_machine import (
+        validate_opportunity_transition,
+        get_allowed_opportunity_transitions,
+        InvalidTransitionError,
+    )
+    from ..services.audit import (
+        log_status_change,
+        log_financial_change,
+        AUDITED_OPPORTUNITY_FIELDS,
+    )
+except ImportError:
+    from database import query, execute
+    from services.state_machine import (
+        validate_opportunity_transition,
+        get_allowed_opportunity_transitions,
+        InvalidTransitionError,
+    )
+    from services.audit import (
+        log_status_change,
+        log_financial_change,
+        AUDITED_OPPORTUNITY_FIELDS,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -311,9 +324,142 @@ async def get_opportunity_detail(opp_id: str):
     current_stage = opportunity.get("stage", "PROSPECT")
     allowed_next = get_allowed_opportunity_transitions(current_stage)
 
+    revisions = query(
+        "SELECT * FROM sale_quotation_revisions WHERE opportunity_id = ? "
+        "ORDER BY revision_number DESC",
+        [opp_id],
+    )
+
+    milestones = query(
+        "SELECT * FROM sale_contract_milestones WHERE opportunity_id = ? "
+        "ORDER BY milestone_number ASC",
+        [opp_id],
+    )
+
+    settlement = query(
+        "SELECT * FROM sale_settlements WHERE opportunity_id = ?",
+        [opp_id],
+        one=True,
+    )
+
     return {
         "opportunity": dict(opportunity),
         "emails": opp_emails,
         "tasks": opp_tasks,
+        "quotation_revisions": revisions,
+        "milestones": milestones,
+        "settlement": settlement,
         "allowed_next_stages": allowed_next,
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# sale_quotation_history — historical quote log (968 records)
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/quotations/history")
+async def list_quotation_history(
+    customer_code: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    market: Optional[str] = Query(None),
+    product_type: Optional[str] = Query(None),
+    incharge: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List historical quotations from Quotation Record xlsx import."""
+    where = []
+    params: list = []
+    if customer_code:
+        where.append("customer_code = ?")
+        params.append(customer_code)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    if market:
+        where.append("market = ?")
+        params.append(market)
+    if product_type:
+        where.append("product_type = ?")
+        params.append(product_type)
+    if incharge:
+        where.append("incharge = ?")
+        params.append(incharge)
+    where_sql = " AND ".join(where) if where else "1=1"
+
+    total = query(
+        f"SELECT COUNT(*) as cnt FROM sale_quotation_history WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
+    items = query(
+        f"""
+        SELECT * FROM sale_quotation_history
+        WHERE {where_sql}
+        ORDER BY date_offer DESC, quotation_no DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    )
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+# ═══════════════════════════════════════════════════════════════
+# sale_active_contracts — live PO/contract registry (14 records)
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/contracts/active")
+async def list_active_contracts(
+    contract_status: Optional[str] = Query(None),
+    project_manager: Optional[str] = Query(None),
+    customer_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """List active contracts with running PO references."""
+    where = []
+    params: list = []
+    if contract_status:
+        where.append("contract_status = ?")
+        params.append(contract_status)
+    if project_manager:
+        where.append("project_manager = ?")
+        params.append(project_manager)
+    if customer_id:
+        where.append("customer_id = ?")
+        params.append(customer_id)
+    where_sql = " AND ".join(where) if where else "1=1"
+
+    total = query(
+        f"SELECT COUNT(*) as cnt FROM sale_active_contracts WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
+    items = query(
+        f"""
+        SELECT ac.*, c.name AS linked_customer_name
+        FROM sale_active_contracts ac
+        LEFT JOIN sale_customers c ON c.id = ac.customer_id
+        WHERE {where_sql}
+        ORDER BY ac.latest_activity DESC, ac.start_date DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [limit, offset],
+    )
+
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
+
+
+@router.get("/{opp_id}/quotation-revisions")
+async def list_opportunity_quotation_revisions(opp_id: str):
+    """List all quotation revisions for an opportunity (newest first)."""
+    items = query(
+        """
+        SELECT * FROM sale_quotation_revisions
+        WHERE opportunity_id = ?
+        ORDER BY revision_number DESC
+        """,
+        [opp_id],
+    )
+    return {"opportunity_id": opp_id, "items": items, "count": len(items)}

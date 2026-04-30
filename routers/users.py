@@ -6,9 +6,13 @@ Manages platform users, roles, departments, and user lifecycle (onboard/offboard
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from ..database import query, execute
 from datetime import datetime
 import uuid
+
+try:
+    from ..database import query, execute
+except ImportError:
+    from database import query, execute
 
 router = APIRouter(prefix="/users", tags=["Users"])
 

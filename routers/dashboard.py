@@ -8,7 +8,10 @@ from datetime import datetime
 
 import structlog
 
-from ..database import query
+try:
+    from ..database import query
+except ImportError:
+    from database import query
 
 logger = structlog.get_logger(__name__)
 
@@ -284,4 +287,188 @@ async def get_executive_overview():
             "unread": email_stats.get("unread", 0),
             "unactioned": email_stats.get("unactioned", 0),
         },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# /summary — full 32-table aggregate dashboard
+# ═══════════════════════════════════════════════════════════════
+
+# Tables surfaced as record counts in /summary. Kept in one place
+# so adding/removing tables only touches this list.
+_SUMMARY_TABLES = [
+    "sale_customers",
+    "sale_customer_contacts",
+    "sale_customer_interactions",
+    "sale_product_categories",
+    "sale_opportunities",
+    "sale_quotation_revisions",
+    "sale_quotation_history",
+    "sale_active_contracts",
+    "sale_contract_milestones",
+    "sale_change_orders",
+    "sale_settlements",
+    "sale_emails",
+    "sale_email_full",
+    "sale_email_labels",
+    "sale_email_activity_log",
+    "sale_tasks",
+    "sale_follow_up_schedules",
+    "sale_nas_file_links",
+    "sale_market_signals",
+    "sale_product_opportunities",
+    "sale_digital_content",
+    "sale_khkd_targets",
+    "sale_audit_log",
+    "sale_import_log",
+    "sale_pm_sync_log",
+]
+
+
+@router.get("/summary")
+async def get_summary():
+    """Full 32-table aggregate dashboard.
+
+    Combines pipeline coverage, milestone health, settlement status, follow-ups,
+    market signals, and table-level record counts. Designed for the BD Director
+    landing page.
+    """
+    now = datetime.now().isoformat()
+
+    # ── Pipeline ─────────────────────────────────────────────────
+    pipeline = query(
+        """
+        SELECT
+            COUNT(*) AS total_opps,
+            COALESCE(SUM(contract_value_usd * win_probability / 100.0), 0) AS weighted_value,
+            COALESCE(SUM(contract_value_usd), 0) AS total_value,
+            COALESCE(SUM(weight_ton), 0) AS total_tons,
+            SUM(CASE WHEN stage = 'WON' THEN 1 ELSE 0 END) AS won_count,
+            SUM(CASE WHEN stage = 'LOST' THEN 1 ELSE 0 END) AS lost_count,
+            SUM(CASE WHEN stale_flag = 1 THEN 1 ELSE 0 END) AS stale_count
+        FROM sale_opportunities
+        """,
+        one=True,
+    ) or {}
+
+    by_stage = query(
+        """
+        SELECT stage, COUNT(*) AS count,
+               COALESCE(SUM(contract_value_usd), 0) AS total_value
+        FROM sale_opportunities
+        WHERE stage NOT IN ('LOST')
+        GROUP BY stage
+        """
+    )
+
+    # ── KHKD ────────────────────────────────────────────────────
+    khkd = query(
+        "SELECT * FROM sale_khkd_targets ORDER BY fiscal_year DESC LIMIT 1",
+        one=True,
+    ) or {}
+
+    # ── Milestones / Settlements ────────────────────────────────
+    milestones = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN invoice_status = 'NOT_INVOICED' THEN 1 ELSE 0 END) AS not_invoiced,
+            SUM(CASE WHEN invoice_status = 'INVOICED' THEN 1 ELSE 0 END) AS invoiced,
+            SUM(CASE WHEN invoice_status = 'PAID' THEN 1 ELSE 0 END) AS paid,
+            SUM(CASE WHEN overdue_days > 0 THEN 1 ELSE 0 END) AS overdue
+        FROM sale_contract_milestones
+        """,
+        one=True,
+    ) or {}
+
+    settlements = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN settlement_status = 'OPEN' THEN 1 ELSE 0 END) AS open_count,
+            SUM(CASE WHEN settlement_status = 'CLOSED' THEN 1 ELSE 0 END) AS closed_count,
+            COALESCE(SUM(actual_revenue_usd), 0) AS total_actual_revenue,
+            COALESCE(SUM(actual_gm_value), 0) AS total_actual_gm
+        FROM sale_settlements
+        """,
+        one=True,
+    ) or {}
+
+    # ── Tasks / Emails / Signals ────────────────────────────────
+    tasks = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'OVERDUE' THEN 1 ELSE 0 END) AS overdue,
+            SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress
+        FROM sale_tasks
+        """,
+        one=True,
+    ) or {}
+
+    emails = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread,
+            SUM(CASE WHEN is_actioned = 0 THEN 1 ELSE 0 END) AS unactioned
+        FROM sale_emails
+        """,
+        one=True,
+    ) or {}
+
+    signals = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN impact_level = 'HIGH' THEN 1 ELSE 0 END) AS high_impact,
+            SUM(CASE WHEN is_actionable = 1 THEN 1 ELSE 0 END) AS actionable
+        FROM sale_market_signals
+        """,
+        one=True,
+    ) or {}
+
+    # ── Record counts (32 tables) ───────────────────────────────
+    record_counts = {}
+    for table in _SUMMARY_TABLES:
+        try:
+            row = query(f"SELECT COUNT(*) AS cnt FROM {table}", one=True) or {}
+            record_counts[table] = row.get("cnt", 0)
+        except Exception as exc:
+            logger.warning("summary_count_failed", table=table, error=str(exc))
+            record_counts[table] = None
+
+    weighted = pipeline.get("weighted_value", 0) or 0
+    target_revenue = khkd.get("total_revenue_target", 0) or 0
+
+    return {
+        "timestamp": now,
+        "fiscal_year": khkd.get("fiscal_year", "N/A"),
+        "pipeline": {
+            "total_opportunities": pipeline.get("total_opps", 0),
+            "weighted_value_usd": round(weighted, 2),
+            "total_value_usd": pipeline.get("total_value", 0),
+            "total_tons": pipeline.get("total_tons", 0),
+            "won_count": pipeline.get("won_count", 0),
+            "lost_count": pipeline.get("lost_count", 0),
+            "stale_count": pipeline.get("stale_count", 0),
+            "by_stage": by_stage,
+        },
+        "khkd_target": {
+            "total_revenue": target_revenue,
+            "total_tons": khkd.get("total_tons_target", 0),
+            "total_gm_pct": khkd.get("total_gm_pct_target", 0),
+            "total_gm_value": khkd.get("total_gm_value_target", 0),
+            "total_po": khkd.get("total_po_target", 0),
+            "coverage_pct": round(
+                (weighted / target_revenue * 100) if target_revenue > 0 else 0, 1
+            ),
+        },
+        "milestones": dict(milestones),
+        "settlements": dict(settlements),
+        "tasks": dict(tasks),
+        "emails": dict(emails),
+        "market_signals": dict(signals),
+        "record_counts": record_counts,
     }

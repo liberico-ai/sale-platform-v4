@@ -8,23 +8,19 @@ from typing import Optional
 
 
 class CustomerCreate(BaseModel):
-    """Request schema for creating a new customer."""
-    name: str
-    code: str
-    country: str
-    region: str
-    status: str = "ACTIVE"
+    """Request schema for creating a new customer.
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Acme Corp",
-                "code": "ACME001",
-                "country": "Vietnam",
-                "region": "Ho Chi Minh City",
-                "status": "ACTIVE",
-            }
-        }
+    Schema (sale_customers): only `name` is NOT NULL. All other columns
+    nullable.
+    """
+    name: str
+    code: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    address: Optional[str] = None
+    website: Optional[str] = None
+    business_description: Optional[str] = None
+    status: Optional[str] = "ACTIVE"
 
 
 class CustomerUpdate(BaseModel):
@@ -33,27 +29,25 @@ class CustomerUpdate(BaseModel):
     code: Optional[str] = None
     country: Optional[str] = None
     region: Optional[str] = None
+    address: Optional[str] = None
+    website: Optional[str] = None
+    business_description: Optional[str] = None
     status: Optional[str] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "Acme Corp Updated",
-                "status": "INACTIVE",
-            }
-        }
 
 
 class CustomerResponse(BaseModel):
     """Response schema for customer data."""
     id: str
     name: str
-    code: str
-    country: str
-    region: str
-    status: str
-    created_at: str
-    updated_at: str
+    code: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    address: Optional[str] = None
+    website: Optional[str] = None
+    business_description: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
     class Config:
         from_attributes = True

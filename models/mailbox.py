@@ -8,21 +8,17 @@ from typing import Optional
 
 
 class MailboxCreate(BaseModel):
-    """Request schema for creating a new monitored mailbox."""
-    email_address: str
-    display_name: str
-    department: str
-    owner_name: str
+    """Request schema for creating a new monitored mailbox.
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "email_address": "sales@example.com",
-                "display_name": "Sales Team",
-                "department": "SALE",
-                "owner_name": "Tài",
-            }
-        }
+    Matches sale_monitored_mailboxes — required: email_address, department.
+    """
+    email_address: str
+    department: str
+    display_name: Optional[str] = None
+    owner_name: Optional[str] = None
+    sync_enabled: Optional[bool] = True
+    sync_from_date: Optional[str] = None
+    is_active: Optional[bool] = True
 
 
 class MailboxUpdate(BaseModel):
@@ -32,28 +28,25 @@ class MailboxUpdate(BaseModel):
     owner_name: Optional[str] = None
     sync_enabled: Optional[bool] = None
     is_active: Optional[bool] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "sync_enabled": False,
-                "is_active": True,
-            }
-        }
+    sync_from_date: Optional[str] = None
 
 
 class MailboxResponse(BaseModel):
-    """Response schema for mailbox data."""
+    """Response schema mirroring sale_monitored_mailboxes."""
     id: str
     email_address: str
-    display_name: str
     department: str
-    owner_name: str
-    sync_enabled: bool
-    is_active: bool
-    last_sync: Optional[str]
-    created_at: str
-    updated_at: str
+    display_name: Optional[str] = None
+    owner_name: Optional[str] = None
+    token_valid: Optional[int] = 0
+    sync_enabled: Optional[int] = 1
+    sync_from_date: Optional[str] = None
+    last_sync_at: Optional[str] = None
+    last_sync_count: Optional[int] = 0
+    is_active: Optional[int] = 1
+    deactivated_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
     class Config:
         from_attributes = True

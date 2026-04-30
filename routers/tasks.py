@@ -12,13 +12,22 @@ import uuid
 
 import structlog
 
-from ..database import query, execute
-from ..services.state_machine import (
-    validate_task_transition,
-    get_allowed_task_transitions,
-    InvalidTransitionError,
-)
-from ..services.audit import log_status_change
+try:
+    from ..database import query, execute
+    from ..services.state_machine import (
+        validate_task_transition,
+        get_allowed_task_transitions,
+        InvalidTransitionError,
+    )
+    from ..services.audit import log_status_change
+except ImportError:
+    from database import query, execute
+    from services.state_machine import (
+        validate_task_transition,
+        get_allowed_task_transitions,
+        InvalidTransitionError,
+    )
+    from services.audit import log_status_change
 
 logger = structlog.get_logger(__name__)
 
@@ -42,11 +51,15 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
-    """Model for updating a task."""
+    """Model for updating a task.
+
+    sale_tasks has no `notes` column — use `result` for completion notes
+    or `description` for ongoing context.
+    """
     status: Optional[str] = None
     result: Optional[str] = None
     assigned_to: Optional[str] = None
-    notes: Optional[str] = None
+    description: Optional[str] = None
 
 
 class TaskEscalate(BaseModel):
@@ -282,9 +295,9 @@ async def update_task(task_id: str, update: TaskUpdate):
     if update.assigned_to is not None:
         sets.append("assigned_to = ?")
         params.append(update.assigned_to)
-    if update.notes is not None:
-        sets.append("notes = ?")
-        params.append(update.notes)
+    if update.description is not None:
+        sets.append("description = ?")
+        params.append(update.description)
 
     if not sets:
         raise HTTPException(status_code=400, detail="No fields to update")
