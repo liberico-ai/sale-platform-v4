@@ -1,22 +1,134 @@
-"""Contracts Router — Milestones, Settlements, Change Orders.
+"""Contracts Router — Active Contracts, Milestones, Settlements, Change Orders.
 
-Read-only browsing for now. Writes flow through opportunities.py PATCH or
-dedicated milestone-update endpoints (Sprint 2).
+Reads are gated by router-level auth_dep. Writes (POST/PATCH) require
+write tier per-route.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+import uuid
+from datetime import datetime
 from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 
 import structlog
 
 try:
-    from ..database import query
+    from ..database import query, execute
+    from ..auth import require_write
+    from ..services.audit import log_status_change, log_financial_change
 except ImportError:
-    from database import query
+    from database import query, execute
+    from auth import require_write
+    from services.audit import log_status_change, log_financial_change
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/contracts", tags=["Contracts"])
+
+
+# ═══════════════════════════════════════════════════════════════
+# Pydantic models — local to this router
+# ═══════════════════════════════════════════════════════════════
+
+class ActiveContractCreate(BaseModel):
+    """New active contract.
+
+    Required: po_number + customer info (customer_id or customer_name).
+    Optional quotation_id auto-fills project_name + product_type from a
+    won quotation when supplied.
+    """
+    po_number: str
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    project_name: Optional[str] = None
+    product_type: Optional[str] = None
+    contract_status: Optional[str] = "ACTIVE"
+    start_date: Optional[str] = None
+    project_manager: Optional[str] = None
+    value_notes: Optional[str] = None
+    quotation_id: Optional[str] = None
+    source: Optional[str] = "API"
+
+
+class ActiveContractUpdate(BaseModel):
+    """Update an active contract. Status changes are audit-logged."""
+    customer_name: Optional[str] = None
+    project_name: Optional[str] = None
+    product_type: Optional[str] = None
+    contract_status: Optional[str] = None
+    start_date: Optional[str] = None
+    latest_activity: Optional[str] = None
+    project_manager: Optional[str] = None
+    value_notes: Optional[str] = None
+    customer_id: Optional[str] = None
+
+
+class MilestoneCreate(BaseModel):
+    """New milestone. opportunity_id required (resolved from contract if
+    not supplied — see endpoint docstring).
+    """
+    milestone_type: str
+    title: str
+    description: Optional[str] = None
+    opportunity_id: Optional[str] = None
+    planned_date: Optional[str] = None
+    weight_ton: Optional[float] = None
+    invoice_amount_usd: Optional[float] = None
+    invoice_amount_vnd: Optional[float] = None
+    payment_term_days: Optional[int] = None
+    nas_contract_path: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class MilestoneUpdate(BaseModel):
+    """Update milestone. invoice_status changes are audit-logged."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    planned_date: Optional[str] = None
+    actual_date: Optional[str] = None
+    weight_ton: Optional[float] = None
+    invoice_amount_usd: Optional[float] = None
+    invoice_amount_vnd: Optional[float] = None
+    payment_term_days: Optional[int] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
+    invoice_status: Optional[str] = None
+    payment_received_date: Optional[str] = None
+    payment_amount: Optional[float] = None
+    overdue_days: Optional[int] = None
+    penalty_amount: Optional[float] = None
+    nas_contract_path: Optional[str] = None
+    nas_invoice_path: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SettlementCreate(BaseModel):
+    """New settlement (post-project P&L close-out).
+
+    opportunity_id required (resolved from contract if not supplied).
+    sale_settlements has UNIQUE(opportunity_id) — only one settlement
+    per opportunity allowed.
+    """
+    opportunity_id: Optional[str] = None
+    settlement_date: Optional[str] = None
+    settlement_status: Optional[str] = "OPEN"
+    planned_value_usd: Optional[float] = None
+    planned_weight_ton: Optional[float] = None
+    planned_gm_pct: Optional[float] = None
+    planned_gm_value: Optional[float] = None
+    actual_revenue_usd: Optional[float] = None
+    actual_weight_ton: Optional[float] = None
+    actual_total_cost: Optional[float] = None
+    actual_gm_pct: Optional[float] = None
+    actual_gm_value: Optional[float] = None
+    notes: Optional[str] = None
+
+
+_AUDITED_CONTRACT_FIELDS = {"contract_status"}
+_AUDITED_MILESTONE_FIELDS = {
+    "invoice_status", "invoice_amount_usd", "payment_amount",
+}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -384,3 +496,354 @@ async def list_active_contract_settlements(contract_id: str):
         opp_ids,
     )
     return {"contract_id": contract_id, "items": items, "count": len(items)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Writes — POST / PATCH for contracts, milestones, settlements
+# ═══════════════════════════════════════════════════════════════
+
+def _resolve_opp_for_contract(contract: dict) -> Optional[str]:
+    """Pick the single best-fit opportunity for a contract — None if 0 or many."""
+    opps = _resolve_contract_opportunities(contract)
+    return opps[0]["id"] if len(opps) == 1 else None
+
+
+@router.post("", dependencies=[Depends(require_write)])
+async def create_active_contract(payload: ActiveContractCreate):
+    """Create a new active contract.
+
+    If `quotation_id` is supplied, project_name + product_type + customer
+    info are auto-filled from the won quotation when not explicitly set.
+    """
+    customer_id = payload.customer_id
+    customer_name = payload.customer_name
+    project_name = payload.project_name
+    product_type = payload.product_type
+
+    if payload.quotation_id:
+        quote = query(
+            "SELECT * FROM sale_quotation_history WHERE id = ?",
+            [payload.quotation_id],
+            one=True,
+        )
+        if not quote:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        # Status is informational — we won't block creation if not WON,
+        # but we do log it.
+        if (quote.get("status") or "").upper() != "WON":
+            logger.warning(
+                "contract_from_non_won_quotation",
+                quotation_id=payload.quotation_id,
+                quotation_status=quote.get("status"),
+            )
+        customer_id = customer_id or quote.get("customer_id")
+        customer_name = customer_name or quote.get("customer_name")
+        project_name = project_name or quote.get("project_name")
+        product_type = product_type or quote.get("product_type")
+
+    if customer_id:
+        cust = query(
+            "SELECT id, name FROM sale_customers WHERE id = ?",
+            [customer_id],
+            one=True,
+        )
+        if not cust:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        customer_name = customer_name or cust.get("name")
+
+    if not customer_name:
+        raise HTTPException(
+            status_code=400,
+            detail="customer_name (or customer_id, or quotation_id) required",
+        )
+
+    contract_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_active_contracts
+            (id, po_number, customer_name, project_name, product_type,
+             contract_status, start_date, latest_activity, value_notes,
+             project_manager, customer_id, source, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            contract_id, payload.po_number, customer_name, project_name,
+            product_type, payload.contract_status or "ACTIVE",
+            payload.start_date, now[:10], payload.value_notes,
+            payload.project_manager, customer_id,
+            payload.source or "API", now, now,
+        ],
+    )
+
+    logger.info(
+        "contract_created",
+        contract_id=contract_id,
+        po_number=payload.po_number,
+        customer_name=customer_name,
+    )
+
+    return {
+        "id": contract_id,
+        "po_number": payload.po_number,
+        "status": payload.contract_status or "ACTIVE",
+        "message": f"Contract created: {payload.po_number}",
+    }
+
+
+@router.patch("/{contract_id}", dependencies=[Depends(require_write)])
+async def update_active_contract(contract_id: str, payload: ActiveContractUpdate):
+    """Update an active contract. Status changes are audit-logged."""
+    existing = query(
+        "SELECT * FROM sale_active_contracts WHERE id = ?",
+        [contract_id],
+        one=True,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    data = (
+        payload.model_dump(exclude_unset=True)
+        if hasattr(payload, "model_dump")
+        else payload.dict(exclude_unset=True)
+    )
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if (
+        "contract_status" in data
+        and data["contract_status"] != existing.get("contract_status")
+    ):
+        log_status_change(
+            "active_contract", contract_id,
+            existing.get("contract_status") or "",
+            data["contract_status"],
+        )
+
+    now = datetime.now().isoformat()
+    sets = [f"{k} = ?" for k in data.keys()]
+    sets.extend(["latest_activity = ?", "updated_at = ?"])
+    params = list(data.values()) + [now[:10], now, contract_id]
+
+    execute(
+        f"UPDATE sale_active_contracts SET {', '.join(sets)} WHERE id = ?",
+        params,
+    )
+
+    return {"id": contract_id, "status": "ok",
+            "updated_fields": list(data.keys())}
+
+
+@router.post(
+    "/{contract_id}/milestones",
+    dependencies=[Depends(require_write)],
+)
+async def create_milestone(contract_id: str, payload: MilestoneCreate):
+    """Create a new milestone for an active contract.
+
+    Milestones are FK'd to sale_opportunities (not sale_active_contracts).
+    Resolution order for opportunity_id:
+      1. payload.opportunity_id (explicit)
+      2. unique opportunity matching contract's customer_id + project_name
+      3. error 400 if neither resolves
+    """
+    contract = query(
+        "SELECT * FROM sale_active_contracts WHERE id = ?",
+        [contract_id],
+        one=True,
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    opportunity_id = payload.opportunity_id or _resolve_opp_for_contract(dict(contract))
+    if not opportunity_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not resolve opportunity_id from contract — pass it "
+                "explicitly in the request body"
+            ),
+        )
+
+    # Next milestone_number for this opportunity (UNIQUE(opp_id, num))
+    next_row = query(
+        "SELECT COALESCE(MAX(milestone_number), 0) + 1 AS n "
+        "FROM sale_contract_milestones WHERE opportunity_id = ?",
+        [opportunity_id],
+        one=True,
+    ) or {}
+    next_num = int(next_row.get("n") or 1)
+
+    milestone_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_contract_milestones
+            (id, opportunity_id, milestone_number, milestone_type, title,
+             description, planned_date, weight_ton,
+             invoice_amount_usd, invoice_amount_vnd, payment_term_days,
+             invoice_status, nas_contract_path, notes,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOT_INVOICED', ?, ?, ?, ?)
+        """,
+        [
+            milestone_id, opportunity_id, next_num, payload.milestone_type,
+            payload.title, payload.description, payload.planned_date,
+            payload.weight_ton, payload.invoice_amount_usd,
+            payload.invoice_amount_vnd, payload.payment_term_days,
+            payload.nas_contract_path, payload.notes, now, now,
+        ],
+    )
+
+    logger.info(
+        "milestone_created",
+        milestone_id=milestone_id,
+        contract_id=contract_id,
+        opportunity_id=opportunity_id,
+        milestone_number=next_num,
+    )
+
+    return {
+        "id": milestone_id,
+        "opportunity_id": opportunity_id,
+        "milestone_number": next_num,
+        "status": "ok",
+    }
+
+
+@router.patch(
+    "/{contract_id}/milestones/{milestone_id}",
+    dependencies=[Depends(require_write)],
+)
+async def update_milestone(contract_id: str, milestone_id: str, payload: MilestoneUpdate):
+    """Update a milestone. invoice_status / financial fields are audit-logged.
+
+    contract_id is informational — the milestone resolves by milestone_id.
+    """
+    existing = query(
+        "SELECT * FROM sale_contract_milestones WHERE id = ?",
+        [milestone_id],
+        one=True,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+
+    data = (
+        payload.model_dump(exclude_unset=True)
+        if hasattr(payload, "model_dump")
+        else payload.dict(exclude_unset=True)
+    )
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if (
+        "invoice_status" in data
+        and data["invoice_status"] != existing.get("invoice_status")
+    ):
+        log_status_change(
+            "milestone", milestone_id,
+            existing.get("invoice_status") or "",
+            data["invoice_status"],
+        )
+
+    financial_diffs = {}
+    for field in _AUDITED_MILESTONE_FIELDS:
+        if (
+            field in data
+            and field != "invoice_status"
+            and data[field] != existing.get(field)
+        ):
+            financial_diffs[field] = (existing.get(field), data[field])
+    if financial_diffs:
+        log_financial_change("milestone", milestone_id, financial_diffs)
+
+    now = datetime.now().isoformat()
+    sets = [f"{k} = ?" for k in data.keys()]
+    sets.append("updated_at = ?")
+    params = list(data.values()) + [now, milestone_id]
+
+    execute(
+        f"UPDATE sale_contract_milestones SET {', '.join(sets)} WHERE id = ?",
+        params,
+    )
+
+    return {"id": milestone_id, "status": "ok",
+            "updated_fields": list(data.keys())}
+
+
+@router.post(
+    "/{contract_id}/settlements",
+    dependencies=[Depends(require_write)],
+)
+async def create_settlement(contract_id: str, payload: SettlementCreate):
+    """Create the settlement for a contract.
+
+    sale_settlements has UNIQUE(opportunity_id) — only one per opportunity.
+    Returns 409 if a settlement already exists.
+    """
+    contract = query(
+        "SELECT * FROM sale_active_contracts WHERE id = ?",
+        [contract_id],
+        one=True,
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    opportunity_id = payload.opportunity_id or _resolve_opp_for_contract(dict(contract))
+    if not opportunity_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not resolve opportunity_id from contract — pass it "
+                "explicitly in the request body"
+            ),
+        )
+
+    existing_settlement = query(
+        "SELECT id FROM sale_settlements WHERE opportunity_id = ?",
+        [opportunity_id],
+        one=True,
+    )
+    if existing_settlement:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Settlement already exists for opportunity {opportunity_id}",
+        )
+
+    settlement_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_settlements
+            (id, opportunity_id, settlement_date, settlement_status,
+             planned_value_usd, planned_weight_ton, planned_gm_pct, planned_gm_value,
+             actual_revenue_usd, actual_weight_ton, actual_total_cost,
+             actual_gm_pct, actual_gm_value, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            settlement_id, opportunity_id, payload.settlement_date or now[:10],
+            payload.settlement_status or "OPEN",
+            payload.planned_value_usd, payload.planned_weight_ton,
+            payload.planned_gm_pct, payload.planned_gm_value,
+            payload.actual_revenue_usd, payload.actual_weight_ton,
+            payload.actual_total_cost, payload.actual_gm_pct,
+            payload.actual_gm_value, payload.notes, now, now,
+        ],
+    )
+
+    logger.info(
+        "settlement_created",
+        settlement_id=settlement_id,
+        contract_id=contract_id,
+        opportunity_id=opportunity_id,
+    )
+
+    return {
+        "id": settlement_id,
+        "opportunity_id": opportunity_id,
+        "status": "ok",
+    }
