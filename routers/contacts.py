@@ -67,6 +67,69 @@ async def list_contacts(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
+@router.get("/duplicates")
+async def find_contact_duplicates(limit: int = Query(50, ge=1, le=200)):
+    """Find candidate contact duplicates by exact email or normalised phone.
+
+    Email match: case-insensitive equality.
+    Phone match: digits-only equality (strips +, spaces, dashes).
+    """
+    by_email = query("""
+        SELECT LOWER(email) AS k,
+               COUNT(*) AS cnt,
+               GROUP_CONCAT(id, '|') AS ids,
+               GROUP_CONCAT(name, '|') AS names,
+               GROUP_CONCAT(customer_id, '|') AS customer_ids
+        FROM sale_customer_contacts
+        WHERE email IS NOT NULL AND email != ''
+        GROUP BY LOWER(email)
+        HAVING COUNT(*) > 1
+        ORDER BY cnt DESC
+        LIMIT ?
+    """, [limit])
+
+    rows = query("""
+        SELECT id, name, phone, email, customer_id FROM sale_customer_contacts
+        WHERE phone IS NOT NULL AND phone != ''
+    """)
+    phone_buckets: dict[str, list[dict]] = {}
+    for r in rows:
+        digits = "".join(ch for ch in (r.get("phone") or "") if ch.isdigit())
+        if len(digits) < 7:
+            continue
+        phone_buckets.setdefault(digits, []).append({
+            "id": r["id"],
+            "name": r.get("name"),
+            "phone": r.get("phone"),
+            "email": r.get("email"),
+            "customer_id": r.get("customer_id"),
+        })
+
+    by_phone = []
+    for k, members in phone_buckets.items():
+        if len(members) >= 2:
+            by_phone.append({
+                "phone_digits": k,
+                "count": len(members),
+                "members": members,
+            })
+    by_phone.sort(key=lambda x: x["count"], reverse=True)
+    by_phone = by_phone[:limit]
+
+    return {
+        "by_email": [
+            {
+                "email": r["k"],
+                "count": r["cnt"],
+                "ids": (r["ids"] or "").split("|"),
+                "names": (r["names"] or "").split("|"),
+            }
+            for r in by_email
+        ],
+        "by_phone": by_phone,
+    }
+
+
 @router.get("/{contact_id}")
 async def get_contact(contact_id: str):
     """Get a single contact with parent customer info."""

@@ -22,6 +22,10 @@ from . import follow_ups
 from . import files
 from . import notifications
 from . import search
+from . import inter_dept
+from . import commissions
+from . import reports
+from . import templates
 
 __all__ = [
     "health",
@@ -43,4 +47,8 @@ __all__ = [
     "files",
     "notifications",
     "search",
+    "inter_dept",
+    "commissions",
+    "reports",
+    "templates",
 ]

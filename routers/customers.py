@@ -107,6 +107,65 @@ async def search_customers(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
+@router.get("/duplicates")
+async def find_customer_duplicates(
+    threshold: int = Query(3, ge=2, le=10, description="Min token-overlap to flag as a possible dup"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Find candidate customer duplicates using normalised name tokens.
+
+    Strategy: lower-case the name, strip company suffixes (Co., Ltd, Inc., etc.),
+    group by the first `threshold` characters of the cleaned name. Returns
+    groups with 2+ rows.
+    """
+    rows = query("""
+        SELECT id, name, code, country, status FROM sale_customers
+        WHERE status != 'DELETED' OR status IS NULL
+    """)
+
+    suffix_words = {
+        "co", "co.", "ltd", "ltd.", "inc", "inc.", "corp", "corp.",
+        "company", "limited", "incorporated", "corporation",
+        "jsc", "joint", "stock", "group", "holdings",
+        "the", "and", "&",
+    }
+
+    def normalize(name: str) -> str:
+        if not name:
+            return ""
+        clean = name.lower()
+        for ch in [",", ".", "-", "_", "/", "\\", "(", ")"]:
+            clean = clean.replace(ch, " ")
+        tokens = [t for t in clean.split() if t and t not in suffix_words]
+        return " ".join(tokens)
+
+    buckets: dict[str, list[dict]] = {}
+    for r in rows:
+        norm = normalize(r.get("name") or "")
+        if not norm or len(norm) < threshold:
+            continue
+        key = norm[:threshold]
+        buckets.setdefault(key, []).append({
+            "id": r["id"],
+            "name": r.get("name"),
+            "code": r.get("code"),
+            "country": r.get("country"),
+            "normalised": norm,
+        })
+
+    groups = []
+    for key, members in buckets.items():
+        if len(members) >= 2:
+            groups.append({
+                "match_prefix": key,
+                "count": len(members),
+                "members": members,
+            })
+
+    groups.sort(key=lambda g: g["count"], reverse=True)
+    return {"threshold": threshold, "groups": groups[:limit], "group_count": len(groups)}
+
+
 # Cross-customer interactions, contacts, quotations live in their own routers
 # (/interactions, /contacts, /quotations). This file only owns the
 # /customers/{id}/* nested sub-resources below.
