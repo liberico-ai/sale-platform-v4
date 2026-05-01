@@ -46,8 +46,8 @@ async def list_mailboxes():
         dict: List of mailboxes with active/inactive status and sync info
     """
     mailboxes = query("""
-        SELECT 
-            id, email_address, mailbox_type, department, is_active,
+        SELECT
+            id, email_address, department, is_active,
             sync_enabled, last_sync_at, created_at, updated_at
         FROM sale_monitored_mailboxes
         ORDER BY created_at DESC
@@ -86,10 +86,10 @@ async def add_mailbox(mailbox: MailboxCreate):
     
     execute("""
         INSERT INTO sale_monitored_mailboxes
-            (id, email_address, mailbox_type, department, is_active, 
+            (id, email_address, department, is_active,
              sync_enabled, token_valid, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, 0, 0, ?, ?)
-    """, [mailbox_id, mailbox.email_address, mailbox.mailbox_type, mailbox.department, now, now])
+        VALUES (?, ?, ?, 1, 0, 0, ?, ?)
+    """, [mailbox_id, mailbox.email_address, mailbox.department, now, now])
     
     return {
         "id": mailbox_id,

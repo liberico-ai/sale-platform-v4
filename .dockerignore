@@ -1,0 +1,58 @@
+# VCS
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+venv
+.venv
+env
+
+# Env & secrets — NEVER ship these into the image
+.env
+.env.*
+!.env.example
+credentials/
+tokens/
+*.pem
+*.key
+
+# Local DB / data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+
+# Docs & meta
+docs/
+*.md
+!README.md
+FILES_CREATED.txt
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Docker artifacts
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Build artifacts
+dist/
+build/
+*.log

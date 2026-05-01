@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IBS HI Sale Platform</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-light: #64748b;
+    --border: #e2e8f0;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+    color: white; padding: 20px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; }
+  .header .subtitle { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+  .header .status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .header .dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; }
+  .header .dot.offline { background: #f87171; }
+
+  /* Nav */
+  .nav { background: #1e3a5f; padding: 0 32px; display: flex; gap: 0; }
+  .nav a {
+    color: rgba(255,255,255,0.7); text-decoration: none; padding: 10px 18px;
+    font-size: 13px; font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .nav a:hover { color: white; background: rgba(255,255,255,0.08); }
+  .nav a.active { color: white; border-bottom-color: #60a5fa; }
+
+  /* Layout */
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+  /* API Key Bar */
+  .api-key-bar {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .api-key-bar label { font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .api-key-bar input {
+    flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-family: monospace; font-size: 14px;
+  }
+  .api-key-bar .role-badge {
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    background: #dbeafe; color: var(--primary);
+  }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px; text-align: center;
+  }
+  .stat-card .value { font-size: 32px; font-weight: 700; color: var(--primary); }
+  .stat-card .label { font-size: 13px; color: var(--text-light); margin-top: 4px; }
+
+  /* Tabs */
+  .tabs {
+    display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid var(--border);
+    overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 500;
+    border: none; background: none; color: var(--text-light);
+    border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+  /* Panel */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* Table */
+  .table-wrap {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .table-toolbar {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .table-toolbar h3 { font-size: 16px; }
+  .btn {
+    padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; color: white; background: var(--primary);
+    transition: background 0.15s;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn-outline {
+    background: transparent; color: var(--primary); border: 1px solid var(--primary);
+  }
+  .btn-outline:hover { background: #eff6ff; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: #f8fafc; text-align: left; padding: 10px 16px; font-weight: 600; color: var(--text-light); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 10px 16px; border-top: 1px solid var(--border); }
+  tr:hover { background: #f8fafc; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-yellow { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fecaca; color: #991b1b; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+
+  /* Empty state */
+  .empty { padding: 60px 20px; text-align: center; color: var(--text-light); }
+  .empty .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty p { font-size: 14px; }
+
+  /* JSON viewer */
+  .json-view {
+    background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: var(--radius);
+    font-family: monospace; font-size: 13px; max-height: 400px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word; margin-top: 12px;
+  }
+
+  /* Loading */
+  .loading { text-align: center; padding: 40px; color: var(--text-light); }
+  .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--card); border-radius: 12px; padding: 24px; width: 90%; max-width: 560px;
+    max-height: 80vh; overflow: auto;
+  }
+  .modal h3 { margin-bottom: 16px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;
+  }
+  .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>IBS HI Sale Platform</h1>
+    <div class="subtitle">Email + Pipeline + Task Management</div>
+  </div>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Connecting...</span>
+  </div>
+</div>
+
+<nav class="nav">
+  <a href="/static/index.html" class="active">Dashboard</a>
+  <a href="/static/email-hub.html">Email Hub</a>
+  <a href="/static/task-board.html">Task Board</a>
+  <a href="/static/pipeline.html">Pipeline</a>
+  <a href="/static/project-board.html">Project Board</a>
+  <a href="/docs" target="_blank">API Docs</a>
+</nav>
+
+<div class="container">
+  <!-- API Key -->
+  <div class="api-key-bar">
+    <label>API Key:</label>
+    <input type="text" id="apiKey" value="dev-key-local-only" placeholder="Enter API key">
+    <span class="role-badge" id="roleBadge">ADMIN</span>
+    <button class="btn btn-sm" onclick="loadAll()">Connect</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card"><div class="value" id="statCustomers">-</div><div class="label">Customers</div></div>
+    <div class="stat-card"><div class="value" id="statOpps">-</div><div class="label">Opportunities</div></div>
+    <div class="stat-card"><div class="value" id="statEmails">-</div><div class="label">Emails</div></div>
+    <div class="stat-card"><div class="value" id="statTasks">-</div><div class="label">Tasks</div></div>
+    <div class="stat-card"><div class="value" id="statUsers">-</div><div class="label">Users</div></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="customers">Customers</button>
+    <button class="tab" data-tab="opportunities">Opportunities</button>
+    <button class="tab" data-tab="emails">Emails</button>
+    <button class="tab" data-tab="tasks">Tasks</button>
+    <button class="tab" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="users">Users</button>
+    <button class="tab" data-tab="api-test">API Test</button>
+  </div>
+
+  <!-- Customers Panel -->
+  <div class="panel active" id="panel-customers">
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h3>Customers</h3>
+        <button class="btn btn-sm btn-outline" onclick="fetchData('customers')">Refresh</button>
+      </div>
+      <div id="customers-content"><div class="loading"><div class="spinner"></div><p>Loading...</p></div></div>
+    </div>
+  </div>
+
+  <!-- Opportunities Panel -->
+  <div class="panel" id="panel-opportunities">
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h3>Opportunities</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="showModal('opp')">+ New</button>
+          <button class="btn btn-sm btn-outline" onclick="fetchData('opportunities')">Refresh</button>
+        </div>
+      </div>
+      <div id="opportunities-content"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- Emails Panel -->
+  <div class="panel" id="panel-emails">
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h3>Emails</h3>
+        <button class="btn btn-sm btn-outline" onclick="fetchData('emails')">Refresh</button>
+      </div>
+      <div id="emails-content"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- Tasks Panel -->
+  <div class="panel" id="panel-tasks">
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h3>Tasks</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="showModal('task')">+ New</button>
+          <button class="btn btn-sm btn-outline" onclick="fetchData('tasks')">Refresh</button>
+        </div>
+      </div>
+      <div id="tasks-content"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- Dashboard Panel -->
+  <div class="panel" id="panel-dashboard">
+    <div class="stats-grid" id="dashboard-content">
+      <div class="loading" style="grid-column:1/-1"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- Users Panel -->
+  <div class="panel" id="panel-users">
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h3>Users</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="showModal('user')">+ New User</button>
+          <button class="btn btn-sm btn-outline" onclick="fetchData('users')">Refresh</button>
+        </div>
+      </div>
+      <div id="users-content"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- API Test Panel -->
+  <div class="panel" id="panel-api-test">
+    <div class="table-wrap" style="padding:20px">
+      <h3 style="margin-bottom:16px">API Tester</h3>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <select id="apiMethod" style="padding:8px;border:1px solid var(--border);border-radius:6px;font-weight:600">
+          <option>GET</option><option>POST</option><option>PATCH</option>
+        </select>
+        <input id="apiUrl" style="flex:1;min-width:300px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-family:monospace" value="/api/v1/dashboard/executive">
+        <button class="btn" onclick="runApiTest()">Send</button>
+      </div>
+      <div class="form-group">
+        <label>Request Body (JSON, for POST/PATCH):</label>
+        <textarea id="apiBody" rows="3" style="font-family:monospace" placeholder='{"key": "value"}'></textarea>
+      </div>
+      <div id="api-test-result"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Opportunity Modal -->
+<div class="modal-overlay" id="modal-opp">
+  <div class="modal">
+    <h3>New Opportunity</h3>
+    <form onsubmit="createOpp(event)">
+      <div class="form-group"><label>Customer ID</label><input name="customer_id" required></div>
+      <div class="form-group"><label>Title</label><input name="title" required></div>
+      <div class="form-group"><label>Product Group</label>
+        <select name="product_group"><option>STEEL_STRUCTURE</option><option>METAL_SHEET</option><option>PURLIN</option><option>ACCESSORY</option><option>MEP</option><option>SANDWICH_PANEL</option><option>OTHER</option></select>
+      </div>
+      <div class="form-group"><label>Estimated Value (VND)</label><input name="estimated_value" type="number"></div>
+      <div class="form-group"><label>Assigned To</label><input name="assigned_to" placeholder="user_id"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('opp')">Cancel</button>
+        <button type="submit" class="btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Create Task Modal -->
+<div class="modal-overlay" id="modal-task">
+  <div class="modal">
+    <h3>New Task</h3>
+    <form onsubmit="createTask(event)">
+      <div class="form-group"><label>Title</label><input name="title" required></div>
+      <div class="form-group"><label>Type</label>
+        <select name="task_type"><option>GENERAL</option><option>COST_ESTIMATE</option><option>TECHNICAL_REVIEW</option><option>CAPACITY_CHECK</option><option>CUSTOMER_FOLLOW_UP</option><option>QUOTATION_REVIEW</option></select>
+      </div>
+      <div class="form-group"><label>Department</label>
+        <select name="department"><option>SALE</option><option>KTKH</option><option>KT</option><option>QLDA</option><option>SX</option><option>TCKT</option><option>QAQC</option><option>TM</option></select>
+      </div>
+      <div class="form-group"><label>Assigned To</label><input name="assigned_to"></div>
+      <div class="form-group"><label>Opportunity ID (optional)</label><input name="opportunity_id"></div>
+      <div class="form-group"><label>Due Date</label><input name="due_date" type="date"></div>
+      <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('task')">Cancel</button>
+        <button type="submit" class="btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal-overlay" id="modal-user">
+  <div class="modal">
+    <h3>New User</h3>
+    <form onsubmit="createUser(event)">
+      <div class="form-group"><label>Full Name</label><input name="full_name" required></div>
+      <div class="form-group"><label>Email</label><input name="email" type="email" required></div>
+      <div class="form-group"><label>Department</label>
+        <select name="department"><option>SALE</option><option>KTKH</option><option>KT</option><option>QLDA</option><option>SX</option><option>TCKT</option><option>QAQC</option><option>TM</option></select>
+      </div>
+      <div class="form-group"><label>Role</label>
+        <select name="role"><option>MEMBER</option><option>LEAD</option><option>MANAGER</option></select>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('user')">Cancel</button>
+        <button type="submit" class="btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+const headers = () => ({ 'X-API-Key': document.getElementById('apiKey').value, 'Content-Type': 'application/json' });
+
+async function api(path, opts = {}) {
+  const res = await fetch(BASE + path, { headers: headers(), ...opts });
+  return { status: res.status, data: await res.json().catch(() => null) };
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    fetchData(tab.dataset.tab);
+  });
+});
+
+function stageBadge(stage) {
+  const colors = { PROSPECT:'gray', CONTACTED:'blue', RFQ_RECEIVED:'blue', COSTING:'yellow', QUOTED:'yellow', NEGOTIATION:'yellow', WON:'green', LOST:'red', IN_PROGRESS:'green' };
+  return `<span class="badge badge-${colors[stage]||'gray'}">${stage}</span>`;
+}
+function statusBadge(s) {
+  const colors = { PENDING:'yellow', IN_PROGRESS:'blue', COMPLETED:'green', OVERDUE:'red', CANCELLED:'gray' };
+  return `<span class="badge badge-${colors[s]||'gray'}">${s}</span>`;
+}
+function formatDate(d) { return d ? new Date(d).toLocaleDateString('vi-VN') : '-'; }
+function formatMoney(v) { return v ? Number(v).toLocaleString('vi-VN') + ' VND' : '-'; }
+
+async function fetchData(type) {
+  const el = document.getElementById(type + '-content');
+  if (!el) return;
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  if (type === 'customers') {
+    const r = await api('/api/v1/customers');
+    if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#128101;</div><p>No customers yet</p></div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Code</th><th>Name</th><th>Region</th><th>Status</th><th>Contact</th></tr></thead><tbody>${
+      r.data.items.map(c => `<tr><td><strong>${c.customer_code||'-'}</strong></td><td>${c.company_name||'-'}</td><td>${c.region||'-'}</td><td>${stageBadge(c.status||'ACTIVE')}</td><td>${c.primary_contact_email||'-'}</td></tr>`).join('')
+    }</tbody></table>`;
+    document.getElementById('statCustomers').textContent = r.data.total || r.data.items.length;
+  }
+  else if (type === 'opportunities') {
+    const r = await api('/api/v1/opportunities');
+    if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#128176;</div><p>No opportunities yet. Create one!</p></div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Title</th><th>Customer</th><th>Product</th><th>Value</th><th>Stage</th><th>Assigned</th></tr></thead><tbody>${
+      r.data.items.map(o => `<tr><td><strong>${o.title||'-'}</strong></td><td>${o.customer_id||'-'}</td><td><span class="badge badge-blue">${o.product_group||'-'}</span></td><td>${formatMoney(o.estimated_value)}</td><td>${stageBadge(o.stage)}</td><td>${o.assigned_to||'-'}</td></tr>`).join('')
+    }</tbody></table>`;
+    document.getElementById('statOpps').textContent = r.data.total || r.data.items.length;
+  }
+  else if (type === 'emails') {
+    const r = await api('/api/v1/emails');
+    if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#128231;</div><p>No emails synced yet</p></div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Subject</th><th>From</th><th>Type</th><th>Date</th><th>Read</th></tr></thead><tbody>${
+      r.data.items.map(e => `<tr><td>${e.subject||'-'}</td><td>${e.sender||'-'}</td><td><span class="badge badge-blue">${e.email_type||'-'}</span></td><td>${formatDate(e.received_at)}</td><td>${e.is_read?'Yes':'No'}</td></tr>`).join('')
+    }</tbody></table>`;
+    document.getElementById('statEmails').textContent = r.data.total || r.data.items.length;
+  }
+  else if (type === 'tasks') {
+    const r = await api('/api/v1/tasks');
+    if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#9989;</div><p>No tasks yet. Create one!</p></div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Title</th><th>Type</th><th>Dept</th><th>Status</th><th>Due</th><th>Assigned</th></tr></thead><tbody>${
+      r.data.items.map(t => `<tr><td><strong>${t.title||'-'}</strong></td><td><span class="badge badge-blue">${t.task_type||'-'}</span></td><td>${t.department||'-'}</td><td>${statusBadge(t.status)}</td><td>${formatDate(t.due_date)}</td><td>${t.assigned_to||'-'}</td></tr>`).join('')
+    }</tbody></table>`;
+    document.getElementById('statTasks').textContent = r.data.total || r.data.items.length;
+  }
+  else if (type === 'users') {
+    const r = await api('/api/v1/users');
+    if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#128100;</div><p>No users yet. Add one!</p></div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Role</th><th>Active</th></tr></thead><tbody>${
+      r.data.items.map(u => `<tr><td><strong>${u.full_name||'-'}</strong></td><td>${u.email||'-'}</td><td>${u.department||'-'}</td><td><span class="badge badge-blue">${u.role||'-'}</span></td><td>${u.is_active!==false?'<span class="badge badge-green">Active</span>':'<span class="badge badge-gray">Inactive</span>'}</td></tr>`).join('')
+    }</tbody></table>`;
+    document.getElementById('statUsers').textContent = r.data.total || r.data.items.length;
+  }
+  else if (type === 'dashboard') {
+    const r = await api('/api/v1/dashboard/executive');
+    if (r.status !== 200) { el.innerHTML = '<div class="empty"><p>Could not load dashboard</p></div>'; return; }
+    const d = r.data;
+    el.innerHTML = `
+      <div class="stat-card"><div class="value">${d.pipeline?.total_opportunities||0}</div><div class="label">Total Opportunities</div></div>
+      <div class="stat-card"><div class="value">${formatMoney(d.pipeline?.total_value)}</div><div class="label">Pipeline Value</div></div>
+      <div class="stat-card"><div class="value">${d.pipeline?.won_count||0}</div><div class="label">Won Deals</div></div>
+      <div class="stat-card"><div class="value">${d.tasks?.overdue||0}</div><div class="label" style="color:var(--danger)">Overdue Tasks</div></div>
+      <div class="stat-card"><div class="value">${d.emails?.unread||0}</div><div class="label">Unread Emails</div></div>
+      <div class="stat-card"><div class="value">${d.emails?.unactioned||0}</div><div class="label">Unactioned Emails</div></div>
+    `;
+  }
+}
+
+async function runApiTest() {
+  const method = document.getElementById('apiMethod').value;
+  const url = document.getElementById('apiUrl').value;
+  const body = document.getElementById('apiBody').value;
+  const el = document.getElementById('api-test-result');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  const opts = { method };
+  if (method !== 'GET' && body) opts.body = body;
+  const r = await api(url, opts);
+  el.innerHTML = `<div style="margin-bottom:8px"><span class="badge ${r.status<300?'badge-green':r.status<500?'badge-yellow':'badge-red'}">${r.status}</span></div><div class="json-view">${JSON.stringify(r.data, null, 2)}</div>`;
+}
+
+// Health check
+async function checkHealth() {
+  try {
+    const r = await fetch('/health');
+    const d = await r.json();
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = `Online | ${d.db_type} | v${d.version}`;
+  } catch {
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('statusText').textContent = 'Offline';
+  }
+}
+
+// Modals
+function showModal(type) { document.getElementById('modal-' + type).classList.add('show'); }
+function closeModal(type) { document.getElementById('modal-' + type).classList.remove('show'); }
+
+async function createOpp(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd);
+  if (body.estimated_value) body.estimated_value = Number(body.estimated_value);
+  await api('/api/v1/opportunities', { method: 'POST', body: JSON.stringify(body) });
+  closeModal('opp');
+  fetchData('opportunities');
+}
+async function createTask(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd);
+  await api('/api/v1/tasks', { method: 'POST', body: JSON.stringify(body) });
+  closeModal('task');
+  fetchData('tasks');
+}
+async function createUser(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd);
+  await api('/api/v1/users', { method: 'POST', body: JSON.stringify(body) });
+  closeModal('user');
+  fetchData('users');
+}
+
+function loadAll() {
+  checkHealth();
+  fetchData('customers');
+  // Preload counts
+  api('/api/v1/opportunities').then(r => { if(r.data?.total!=null) document.getElementById('statOpps').textContent=r.data.total; else if(r.data?.items) document.getElementById('statOpps').textContent=r.data.items.length; });
+  api('/api/v1/emails').then(r => { if(r.data?.total!=null) document.getElementById('statEmails').textContent=r.data.total; else if(r.data?.items) document.getElementById('statEmails').textContent=r.data.items.length; });
+  api('/api/v1/tasks').then(r => { if(r.data?.total!=null) document.getElementById('statTasks').textContent=r.data.total; else if(r.data?.items) document.getElementById('statTasks').textContent=r.data.items.length; });
+  api('/api/v1/users').then(r => { if(r.data?.total!=null) document.getElementById('statUsers').textContent=r.data.total; else if(r.data?.items) document.getElementById('statUsers').textContent=r.data.items.length; });
+}
+
+// Init
+loadAll();
+</script>
+</body>
+</html>

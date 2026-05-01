@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Dashboard - IBS HI Sale Platform</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --text: #1e293b;
+    --text-light: #64748b;
+    --border: #e2e8f0;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+    color: white; padding: 20px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; }
+  .header .subtitle { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+  .header .status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .header .dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; }
+  .header .dot.offline { background: #f87171; }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .nav-back {
+    color: white; text-decoration: none; font-size: 14px; font-weight: 500;
+    padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3);
+    transition: background 0.15s;
+  }
+  .nav-back:hover { background: rgba(255,255,255,0.15); }
+
+  /* Layout */
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+  /* API Key Bar */
+  .api-key-bar {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .api-key-bar label { font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .api-key-bar input {
+    flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    font-family: monospace; font-size: 14px;
+  }
+  .api-key-bar .role-badge {
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    background: #dbeafe; color: var(--primary);
+  }
+
+  .btn {
+    padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; color: white; background: var(--primary);
+    transition: background 0.15s;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-yellow { background: #fef3c7; color: #92400e; }
+  .badge-red { background: #fecaca; color: #991b1b; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+
+  /* Loading */
+  .loading { text-align: center; padding: 40px; color: var(--text-light); }
+  .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Section titles */
+  .section-title {
+    font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title .icon { font-size: 18px; }
+
+  /* KPI Cards Grid */
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 16px; margin-bottom: 32px;
+  }
+  .kpi-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px;
+  }
+  .kpi-card .kpi-header {
+    display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;
+  }
+  .kpi-card .kpi-label { font-size: 13px; color: var(--text-light); font-weight: 500; }
+  .kpi-card .kpi-pct {
+    font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 12px;
+  }
+  .kpi-card .kpi-value { font-size: 28px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .kpi-card .kpi-target { font-size: 12px; color: var(--text-light); margin-bottom: 12px; }
+  .kpi-bar-track {
+    width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;
+  }
+  .kpi-bar-fill {
+    height: 100%; border-radius: 4px; transition: width 0.6s ease;
+  }
+  .bar-green { background: var(--success); }
+  .bar-yellow { background: var(--warning); }
+  .bar-red { background: var(--danger); }
+  .pct-green { background: #dcfce7; color: #15803d; }
+  .pct-yellow { background: #fef3c7; color: #92400e; }
+  .pct-red { background: #fecaca; color: #991b1b; }
+
+  /* Product Group Section */
+  .product-section {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; margin-bottom: 32px;
+  }
+  .product-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .product-row:last-child { border-bottom: none; }
+  .product-name {
+    width: 120px; font-size: 13px; font-weight: 600; flex-shrink: 0;
+  }
+  .product-bar-wrap {
+    flex: 1; display: flex; align-items: center; gap: 12px;
+  }
+  .product-bar-track {
+    flex: 1; height: 28px; background: #e2e8f0; border-radius: 6px; overflow: hidden;
+    position: relative;
+  }
+  .product-bar-fill {
+    height: 100%; border-radius: 6px; transition: width 0.6s ease;
+    display: flex; align-items: center; padding-left: 10px;
+    font-size: 12px; font-weight: 600; color: white; min-width: fit-content;
+  }
+  .product-bar-fill span {
+    white-space: nowrap;
+  }
+  .product-value {
+    font-size: 14px; font-weight: 700; width: 80px; text-align: right; flex-shrink: 0;
+  }
+  .product-count {
+    flex-shrink: 0;
+  }
+
+  /* Two Column Layout */
+  .two-col {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px;
+  }
+  .col-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px;
+  }
+  .col-card .col-title {
+    font-size: 15px; font-weight: 700; margin-bottom: 20px;
+  }
+
+  /* Quarter Chart */
+  .quarter-chart {
+    display: flex; align-items: flex-end; justify-content: space-around;
+    height: 220px; padding-top: 20px; gap: 16px;
+  }
+  .quarter-col {
+    display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%;
+    justify-content: flex-end;
+  }
+  .quarter-bar {
+    width: 100%; max-width: 64px; border-radius: 6px 6px 0 0;
+    transition: height 0.6s ease; position: relative;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 8px;
+  }
+  .quarter-bar .bar-label {
+    font-size: 12px; font-weight: 700; color: white;
+    white-space: nowrap;
+  }
+  .quarter-name {
+    font-size: 13px; font-weight: 600; margin-top: 8px; color: var(--text);
+  }
+  .quarter-value {
+    font-size: 12px; color: var(--text-light); margin-top: 2px;
+  }
+
+  /* Stage Funnel */
+  .funnel-wrap {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .funnel-stage {
+    display: flex; align-items: center; height: 32px; position: relative;
+    margin: 0 auto;
+    transition: width 0.6s ease;
+    border-radius: 4px;
+  }
+  .funnel-stage-inner {
+    width: 100%; height: 100%; border-radius: 4px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px;
+    font-size: 12px; font-weight: 600; color: white;
+  }
+  .funnel-stage-name { white-space: nowrap; }
+  .funnel-stage-info {
+    display: flex; gap: 8px; align-items: center; white-space: nowrap;
+  }
+
+  /* Responsive */
+  @media (max-width: 1024px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 768px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+    .header { padding: 16px 20px; flex-direction: column; gap: 12px; align-items: flex-start; }
+    .container { padding: 16px; }
+    .api-key-bar { flex-wrap: wrap; }
+    .product-name { width: 80px; font-size: 12px; }
+    .product-value { width: 60px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <a href="/" class="nav-back">Home</a>
+    <div>
+      <h1>Pipeline Dashboard</h1>
+      <div class="subtitle">KHKD 2026 Target Comparison</div>
+    </div>
+  </div>
+  <div class="status">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">Connecting...</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- API Key -->
+  <div class="api-key-bar">
+    <label>API Key:</label>
+    <input type="text" id="apiKey" value="dev-key-local-only" placeholder="Enter API key">
+    <span class="role-badge" id="roleBadge">ADMIN</span>
+    <button class="btn btn-sm" onclick="loadDashboard()">Load</button>
+  </div>
+
+  <!-- Section 1: KPI Cards -->
+  <div class="section-title"><span class="icon">&#127919;</span> KHKD 2026 Targets</div>
+  <div class="kpi-grid" id="kpiGrid">
+    <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+    <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+    <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+    <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Section 2: Product Groups -->
+  <div class="section-title"><span class="icon">&#128230;</span> Product Group Breakdown</div>
+  <div class="product-section" id="productSection">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <!-- Section 3: Quarter + Funnel -->
+  <div class="two-col">
+    <div class="col-card">
+      <div class="col-title">Quarterly Distribution</div>
+      <div id="quarterChart" class="quarter-chart">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+    <div class="col-card">
+      <div class="col-title">Stage Funnel</div>
+      <div id="stageFunnel" class="funnel-wrap">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+const TARGETS = {
+  revenue: 19100000, // $19.1M
+  tons: 7000,
+  gm_pct: 21,
+  pos: 25
+};
+
+const headers = () => ({
+  'X-API-Key': document.getElementById('apiKey').value,
+  'Content-Type': 'application/json'
+});
+
+async function api(path) {
+  try {
+    const res = await fetch(BASE + path, { headers: headers() });
+    return { status: res.status, data: await res.json().catch(() => null) };
+  } catch (e) {
+    return { status: 0, data: null };
+  }
+}
+
+// Number formatting
+function fmtUSD(val) {
+  if (val == null || val === 0) return '$0';
+  const abs = Math.abs(val);
+  if (abs >= 1000000) return '$' + (val / 1000000).toFixed(1) + 'M';
+  if (abs >= 1000) return '$' + (val / 1000).toFixed(0) + 'K';
+  return '$' + val.toFixed(0);
+}
+
+function fmtTons(val) {
+  if (val == null) return '0t';
+  return Number(val).toLocaleString('en-US') + 't';
+}
+
+function fmtPct(val) {
+  if (val == null) return '0%';
+  return Math.round(val) + '%';
+}
+
+function barColor(pct) {
+  if (pct >= 80) return 'green';
+  if (pct >= 50) return 'yellow';
+  return 'red';
+}
+
+// KPI Cards
+function renderKPIs(data) {
+  const revenue = data.total_weighted_value || data.total_value || 0;
+  const tons = data.total_tons || 0;
+  const gm = data.avg_gm_pct || data.gm_pct || 0;
+  const pos = data.won_count || data.total_pos || 0;
+
+  const kpis = [
+    { label: 'Revenue', actual: revenue, target: TARGETS.revenue, fmt: fmtUSD, targetLabel: 'Target: $19.1M' },
+    { label: 'Tonnage', actual: tons, target: TARGETS.tons, fmt: fmtTons, targetLabel: 'Target: 7,000t' },
+    { label: 'Gross Margin', actual: gm, target: TARGETS.gm_pct, fmt: fmtPct, targetLabel: 'Target: 21%' },
+    { label: 'Purchase Orders', actual: pos, target: TARGETS.pos, fmt: function(v) { return v.toString(); }, targetLabel: 'Target: 25 POs' }
+  ];
+
+  const grid = document.getElementById('kpiGrid');
+  grid.innerHTML = kpis.map(k => {
+    const pct = k.target > 0 ? Math.round((k.actual / k.target) * 100) : 0;
+    const clampedPct = Math.min(pct, 100);
+    const color = barColor(pct);
+    return `
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">${k.label}</span>
+          <span class="kpi-pct pct-${color}">${pct}%</span>
+        </div>
+        <div class="kpi-value">${k.fmt(k.actual)}</div>
+        <div class="kpi-target">${k.targetLabel}</div>
+        <div class="kpi-bar-track">
+          <div class="kpi-bar-fill bar-${color}" style="width:${clampedPct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Product Groups
+function renderProducts(data) {
+  const section = document.getElementById('productSection');
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    section.innerHTML = '<div style="text-align:center;color:var(--text-light);padding:20px">No product data available</div>';
+    return;
+  }
+
+  const maxVal = Math.max(...data.map(d => d.weighted_value || d.total_value || 0), 1);
+  const groupColors = {
+    'HRSG': '#2563eb',
+    'Diverter': '#7c3aed',
+    'Shipbuilding': '#0891b2',
+    'PV': '#059669',
+    'Handling': '#d97706',
+    'Duct': '#dc2626',
+    'Other': '#64748b'
+  };
+
+  section.innerHTML = data.map(item => {
+    const val = item.weighted_value || item.total_value || 0;
+    const widthPct = maxVal > 0 ? Math.max((val / maxVal) * 100, 2) : 2;
+    const name = item.product_group || 'Unknown';
+    const color = groupColors[name] || '#64748b';
+    const count = item.deal_count || item.count || 0;
+
+    return `
+      <div class="product-row">
+        <div class="product-name">${name}</div>
+        <div class="product-bar-wrap">
+          <div class="product-bar-track">
+            <div class="product-bar-fill" style="width:${widthPct}%;background:${color}">
+              <span>${fmtUSD(val)}</span>
+            </div>
+          </div>
+          <div class="product-count">
+            <span class="badge badge-blue">${count} deal${count !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Quarter Chart
+function renderQuarters(data) {
+  const chart = document.getElementById('quarterChart');
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    chart.innerHTML = '<div style="text-align:center;color:var(--text-light);width:100%">No quarterly data available</div>';
+    return;
+  }
+
+  const maxVal = Math.max(...data.map(d => d.total_value || d.weighted_value || 0), 1);
+  const qColors = ['#2563eb', '#7c3aed', '#0891b2', '#059669'];
+
+  chart.innerHTML = data.map((q, i) => {
+    const val = q.total_value || q.weighted_value || 0;
+    const heightPct = maxVal > 0 ? Math.max((val / maxVal) * 100, 5) : 5;
+    const name = q.quarter || q.quarter_name || ('Q' + (i + 1));
+    const color = qColors[i % qColors.length];
+
+    return `
+      <div class="quarter-col">
+        <div class="quarter-bar" style="height:${heightPct}%;background:${color}">
+          <span class="bar-label">${fmtUSD(val)}</span>
+        </div>
+        <div class="quarter-name">${name}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Stage Funnel
+function renderFunnel(data) {
+  const funnel = document.getElementById('stageFunnel');
+  const stages = ['PROSPECT', 'CONTACTED', 'RFQ_RECEIVED', 'COSTING', 'QUOTED', 'NEGOTIATION', 'WON', 'IN_PROGRESS'];
+  const stageColors = {
+    'PROSPECT': '#94a3b8',
+    'CONTACTED': '#60a5fa',
+    'RFQ_RECEIVED': '#3b82f6',
+    'COSTING': '#f59e0b',
+    'QUOTED': '#d97706',
+    'NEGOTIATION': '#f97316',
+    'WON': '#16a34a',
+    'IN_PROGRESS': '#059669'
+  };
+
+  // Build stage map from data
+  let stageMap = {};
+  if (data && data.by_stage) {
+    // If pipeline response has by_stage
+    data.by_stage.forEach(s => {
+      stageMap[s.stage] = { count: s.count || 0, value: s.total_value || s.weighted_value || 0 };
+    });
+  } else if (data && data.stage_summary) {
+    data.stage_summary.forEach(s => {
+      stageMap[s.stage] = { count: s.count || 0, value: s.total_value || s.weighted_value || 0 };
+    });
+  } else if (data && Array.isArray(data)) {
+    // Might be direct array of opportunities - count by stage
+    data.forEach(opp => {
+      const st = opp.stage || 'PROSPECT';
+      if (!stageMap[st]) stageMap[st] = { count: 0, value: 0 };
+      stageMap[st].count++;
+      stageMap[st].value += (opp.estimated_value || opp.weighted_value || 0);
+    });
+  }
+
+  const totalStages = stages.length;
+  funnel.innerHTML = stages.map((stage, i) => {
+    const info = stageMap[stage] || { count: 0, value: 0 };
+    const widthPct = 100 - (i * (60 / totalStages));
+    const color = stageColors[stage] || '#64748b';
+    const displayName = stage.replace(/_/g, ' ');
+
+    return `
+      <div class="funnel-stage" style="width:${widthPct}%">
+        <div class="funnel-stage-inner" style="background:${color}">
+          <span class="funnel-stage-name">${displayName}</span>
+          <span class="funnel-stage-info">
+            <span>${info.count}</span>
+            <span>${fmtUSD(info.value)}</span>
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Health check
+async function checkHealth() {
+  try {
+    const r = await fetch('/health');
+    const d = await r.json();
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusText').textContent = 'Online | ' + d.db_type + ' | v' + d.version;
+  } catch {
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('statusText').textContent = 'Offline';
+  }
+}
+
+// Main load
+async function loadDashboard() {
+  checkHealth();
+
+  // Fetch pipeline data
+  const pipelineRes = api('/api/v1/dashboard/pipeline');
+  const productRes = api('/api/v1/dashboard/pipeline/by-product');
+  const quarterRes = api('/api/v1/dashboard/pipeline/by-quarter');
+
+  const [pipeline, products, quarters] = await Promise.all([pipelineRes, productRes, quarterRes]);
+
+  // KPI cards
+  if (pipeline.data) {
+    renderKPIs(pipeline.data);
+  } else {
+    document.getElementById('kpiGrid').innerHTML =
+      '<div style="grid-column:1/-1;text-align:center;color:var(--text-light);padding:20px">Could not load pipeline data. Check API key and connection.</div>';
+  }
+
+  // Product groups
+  if (products.data) {
+    renderProducts(Array.isArray(products.data) ? products.data : products.data.items || products.data.groups || []);
+  } else {
+    document.getElementById('productSection').innerHTML =
+      '<div style="text-align:center;color:var(--text-light);padding:20px">Could not load product data</div>';
+  }
+
+  // Quarter chart
+  if (quarters.data) {
+    renderQuarters(Array.isArray(quarters.data) ? quarters.data : quarters.data.items || quarters.data.quarters || []);
+  } else {
+    document.getElementById('quarterChart').innerHTML =
+      '<div style="text-align:center;color:var(--text-light);width:100%">Could not load quarterly data</div>';
+  }
+
+  // Stage funnel from pipeline data
+  if (pipeline.data) {
+    renderFunnel(pipeline.data);
+  } else {
+    document.getElementById('stageFunnel').innerHTML =
+      '<div style="text-align:center;color:var(--text-light)">Could not load funnel data</div>';
+  }
+}
+
+// Init
+loadDashboard();
+</script>
+</body>
+</html>

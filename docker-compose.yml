@@ -1,0 +1,52 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Sale Platform v4 — Production deploy
+#
+# Pulls the image published by .github/workflows/deploy.yml from GHCR.
+# Usage on server:
+#   1) cp .env.example .env  && fill in real values
+#   2) docker compose pull && docker compose up -d
+#
+# Registry auth (first time only, read:packages scope is enough):
+#   echo $GHCR_PAT | docker login ghcr.io -u <username> --password-stdin
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  sale-platform:
+    image: ghcr.io/liberico-ai/sale-platform-v4:${IMAGE_TAG:-latest}
+    container_name: sale-platform-v4
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      SALE_PORT: "8767"
+      API_HOST: "0.0.0.0"
+
+    ports:
+      - "7150:8767"
+
+    volumes:
+      # SQLite DB (only used when DB_TYPE=sqlite)
+      - sale_data:/app/data
+      # Gmail OAuth credentials + per-mailbox tokens (read-only client creds,
+      # read-write tokens dir so refresh tokens can be written back)
+      - ./credentials:/app/credentials:ro
+      - sale_tokens:/app/tokens
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8767/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  sale_data:
+  sale_tokens:

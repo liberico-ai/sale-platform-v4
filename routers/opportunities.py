@@ -7,7 +7,8 @@ validation for stage transitions and audit logging for financial changes.
 from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
 import uuid
 
 import structlog
@@ -235,6 +236,36 @@ async def update_opportunity(opp_id: str, update: OpportunityUpdate):
                      opp_id=opp_id,
                      from_stage=current_stage,
                      to_stage=update.stage)
+
+        # Follow-up schedule management
+        if update.stage == "QUOTED":
+            # Create post-quotation follow-up schedule (INSERT OR IGNORE for idempotency)
+            schedule_id = str(uuid.uuid4())
+            now_ts = datetime.utcnow().isoformat()
+            next_follow_up = (datetime.utcnow() + timedelta(days=3)).isoformat()
+            reminder_days_json = json.dumps([3, 7, 14, 30])
+            execute("""
+                INSERT OR IGNORE INTO sale_follow_up_schedules
+                    (id, opportunity_id, schedule_type, reminder_days,
+                     next_follow_up, follow_up_count, is_active,
+                     created_at)
+                VALUES (?, ?, 'POST_QUOTATION', ?, ?, 0, 1, ?)
+            """, [
+                schedule_id, opp_id, reminder_days_json,
+                next_follow_up, now_ts,
+            ])
+            logger.info("followup_schedule_created",
+                         opp_id=opp_id, schedule_type="POST_QUOTATION")
+
+        elif update.stage in ("WON", "LOST", "IN_PROGRESS"):
+            # Deactivate any active follow-up schedules
+            execute("""
+                UPDATE sale_follow_up_schedules
+                SET is_active = 0
+                WHERE opportunity_id = ? AND is_active = 1
+            """, [opp_id])
+            logger.info("followup_schedules_deactivated",
+                         opp_id=opp_id, reason=f"stage_changed_to_{update.stage}")
 
     # Financial field: win_probability
     if update.win_probability is not None:
