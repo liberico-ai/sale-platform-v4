@@ -8,6 +8,8 @@ import os
 import structlog
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -176,6 +178,27 @@ app.include_router(health.router)
 
 # Auth introspection — own auth check inside the route
 app.include_router(auth_router.router, prefix="/api/v1")
+
+# Static frontend (single-file SPA at /static/sale_dashboard.html)
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+_STATIC_DIR = os.path.join(_PROJECT_ROOT, "static")
+if os.path.isdir(_STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def root_index():
+    """Serve the dashboard SPA at the root."""
+    index = os.path.join(_STATIC_DIR, "sale_dashboard.html")
+    if os.path.isfile(index):
+        return FileResponse(index)
+    return RedirectResponse(url="/docs")
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard_alias():
+    """Convenience alias — same SPA."""
+    return RedirectResponse(url="/")
 
 # Read-access endpoints (any valid API key)
 app.include_router(customers.router, prefix="/api/v1", dependencies=auth_dep)
