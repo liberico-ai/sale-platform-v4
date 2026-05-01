@@ -4,7 +4,7 @@ Manages creation, updates, stale deal tracking, with state machine
 validation for stage transitions and audit logging for financial changes.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -13,17 +13,32 @@ import uuid
 
 import structlog
 
-from ..database import query, execute
-from ..services.state_machine import (
-    validate_opportunity_transition,
-    get_allowed_opportunity_transitions,
-    InvalidTransitionError,
-)
-from ..services.audit import (
-    log_status_change,
-    log_financial_change,
-    AUDITED_OPPORTUNITY_FIELDS,
-)
+try:
+    from ..database import query, execute
+    from ..auth import require_write
+    from ..services.state_machine import (
+        validate_opportunity_transition,
+        get_allowed_opportunity_transitions,
+        InvalidTransitionError,
+    )
+    from ..services.audit import (
+        log_status_change,
+        log_financial_change,
+        AUDITED_OPPORTUNITY_FIELDS,
+    )
+except ImportError:
+    from database import query, execute
+    from auth import require_write
+    from services.state_machine import (
+        validate_opportunity_transition,
+        get_allowed_opportunity_transitions,
+        InvalidTransitionError,
+    )
+    from services.audit import (
+        log_status_change,
+        log_financial_change,
+        AUDITED_OPPORTUNITY_FIELDS,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -136,7 +151,7 @@ async def get_stale_deals(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_write)])
 async def create_opportunity(opp: OpportunityCreate):
     """Create a new sales opportunity.
 
@@ -171,7 +186,7 @@ async def create_opportunity(opp: OpportunityCreate):
     return {"id": opp_id, "status": "ok", "message": f"Opportunity created: {opp.project_name}"}
 
 
-@router.patch("/{opp_id}")
+@router.patch("/{opp_id}", dependencies=[Depends(require_write)])
 async def update_opportunity(opp_id: str, update: OpportunityUpdate):
     """Update an existing opportunity with state machine validation.
 
@@ -342,9 +357,37 @@ async def get_opportunity_detail(opp_id: str):
     current_stage = opportunity.get("stage", "PROSPECT")
     allowed_next = get_allowed_opportunity_transitions(current_stage)
 
+    revisions = query(
+        "SELECT * FROM sale_quotation_revisions WHERE opportunity_id = ? "
+        "ORDER BY revision_number DESC",
+        [opp_id],
+    )
+
+    milestones = query(
+        "SELECT * FROM sale_contract_milestones WHERE opportunity_id = ? "
+        "ORDER BY milestone_number ASC",
+        [opp_id],
+    )
+
+    settlement = query(
+        "SELECT * FROM sale_settlements WHERE opportunity_id = ?",
+        [opp_id],
+        one=True,
+    )
+
     return {
         "opportunity": dict(opportunity),
         "emails": opp_emails,
         "tasks": opp_tasks,
+        "quotation_revisions": revisions,
+        "milestones": milestones,
+        "settlement": settlement,
         "allowed_next_stages": allowed_next,
     }
+
+
+# Quotation history, active contracts, and per-opportunity revisions
+# moved to dedicated routers /quotations and /contracts. Use:
+#   GET /quotations?customer_code=X
+#   GET /contracts (sale_active_contracts list)
+#   GET /quotations/by-opportunity/{opp_id}/revisions

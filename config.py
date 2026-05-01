@@ -12,7 +12,10 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 
 # Database Configuration
 DB_TYPE = os.getenv("DB_TYPE", "sqlite")  # sqlite or postgresql
-SALE_DB_PATH = os.getenv("SALE_DB_PATH", "./sale_platform.db")
+# Built by sql_import/build_db.py — lives at project root
+SALE_DB_PATH = os.getenv("SALE_DB_PATH", "./sale.db")
+# Pipeline directory for sql_import/build_db.py (32 tables, ~6,700 records)
+IMPORT_DIR = os.getenv("IMPORT_DIR", "./sql_import/")
 
 # PostgreSQL Configuration (if DB_TYPE == "postgresql")
 PG_DSN = os.getenv(

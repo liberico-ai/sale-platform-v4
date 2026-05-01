@@ -8,6 +8,7 @@ import os
 import structlog
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,16 +21,28 @@ try:
     from .database import init_db, close_db_connection, close_all_connections
     from .auth import require_auth, require_write, require_admin
     from .routers import (
-        health, customers, opportunities, emails, tasks,
-        dashboard, mailboxes, users, pm_integration, nas_files
+        health, auth_router,
+        customers, opportunities, emails, tasks,
+        dashboard, mailboxes, users, pm_integration,
+        contracts, intelligence,
+        contacts, quotations, interactions,
+        follow_ups, files, notifications, search,
+        inter_dept, commissions, reports, templates,
+        io_router,
     )
 except ImportError:
     import config
     from database import init_db, close_db_connection, close_all_connections
     from auth import require_auth, require_write, require_admin
     from routers import (
-        health, customers, opportunities, emails, tasks,
-        dashboard, mailboxes, users, pm_integration, nas_files
+        health, auth_router,
+        customers, opportunities, emails, tasks,
+        dashboard, mailboxes, users, pm_integration,
+        contracts, intelligence,
+        contacts, quotations, interactions,
+        follow_ups, files, notifications, search,
+        inter_dept, commissions, reports, templates,
+        io_router,
     )
 
 # Initialize scheduler (placeholder for now)
@@ -62,12 +75,12 @@ async def lifespan(app: FastAPI):
             from .workers.gmail_worker import sync_gmail
             from .workers.sla_worker import check_sla
             from .workers.stale_worker import detect_stale_deals
-            from .workers.followup_worker import process_follow_ups
+            from .workers.followup_worker import check_followups
         except ImportError:
             from workers.gmail_worker import sync_gmail
             from workers.sla_worker import check_sla
             from workers.stale_worker import detect_stale_deals
-            from workers.followup_worker import process_follow_ups
+            from workers.followup_worker import check_followups
 
         # Gmail sync — every 5 minutes (if email sync enabled)
         if config.ENABLE_EMAIL_SYNC:
@@ -94,13 +107,13 @@ async def lifespan(app: FastAPI):
         )
         logger.info("worker_registered", worker="stale_detection", schedule="daily_08:00")
 
-        # Follow-up schedule check — every 60 minutes
+        # Follow-up reminders — daily at 7:00 AM
         scheduler.add_job(
-            process_follow_ups, "interval", minutes=60,
-            id="followup_check", name="Follow-up Schedule Check",
+            check_followups, "cron", hour=7, minute=0,
+            id="followup_check", name="Follow-up Reminders",
             max_instances=1, replace_existing=True,
         )
-        logger.info("worker_registered", worker="followup_check", interval="60min")
+        logger.info("worker_registered", worker="followup_check", schedule="daily_07:00")
 
         scheduler.start()
         logger.info("scheduler_started", job_count=len(scheduler.get_jobs()))
@@ -160,27 +173,57 @@ admin_dep = [Depends(require_admin)]
 # ROUTER REGISTRATION
 # ═══════════════════════════════════════════════════════════════
 
-# Serve static files (dashboard UI)
-_static_dir = os.path.join(os.path.dirname(__file__), "static")
-if os.path.isdir(_static_dir):
-    app.mount("/static", StaticFiles(directory=_static_dir, html=True), name="static")
-
 # Public endpoints (no auth required)
 app.include_router(health.router)
 
-# Read-access endpoints (any valid API key)
-app.include_router(customers.router, prefix="/api/v1", dependencies=auth_dep)       # READ-ONLY
-app.include_router(dashboard.router, prefix="/api/v1", dependencies=auth_dep)       # READ-ONLY
+# Auth introspection — own auth check inside the route
+app.include_router(auth_router.router, prefix="/api/v1")
 
-# Write-access endpoints for core entities (ADMIN or MANAGER key)
-app.include_router(opportunities.router, prefix="/api/v1", dependencies=write_dep)  # CREATE/UPDATE
-app.include_router(emails.router, prefix="/api/v1", dependencies=write_dep)         # SYNC/UPDATE
-app.include_router(tasks.router, prefix="/api/v1", dependencies=write_dep)          # CREATE/UPDATE
+# Static frontend (single-file SPA at /static/sale_dashboard.html)
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+_STATIC_DIR = os.path.join(_PROJECT_ROOT, "static")
+if os.path.isdir(_STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def root_index():
+    """Serve the dashboard SPA at the root."""
+    index = os.path.join(_STATIC_DIR, "sale_dashboard.html")
+    if os.path.isfile(index):
+        return FileResponse(index)
+    return RedirectResponse(url="/docs")
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard_alias():
+    """Convenience alias — same SPA."""
+    return RedirectResponse(url="/")
+
+# Read-access endpoints (any valid API key)
+app.include_router(customers.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(opportunities.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(emails.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(tasks.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(dashboard.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(contracts.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(intelligence.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(contacts.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(quotations.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(interactions.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(follow_ups.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(files.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(notifications.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(search.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(inter_dept.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(commissions.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(reports.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(templates.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(io_router.router, prefix="/api/v1", dependencies=auth_dep)
 
 # Write-access endpoints (ADMIN or MANAGER key)
 app.include_router(mailboxes.router, prefix="/api/v1", dependencies=write_dep)
 app.include_router(users.router, prefix="/api/v1", dependencies=write_dep)
-app.include_router(nas_files.router, prefix="/api/v1", dependencies=write_dep)
 
 # PM integration (read access, writes internally validated)
 app.include_router(pm_integration.router, prefix="/api/v1", dependencies=auth_dep)

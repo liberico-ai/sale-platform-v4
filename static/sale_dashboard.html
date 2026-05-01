@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>IBS HI Sale Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0e1117;
+    --bg-elev: #161b22;
+    --bg-elev-2: #1f242c;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-mute: #8b949e;
+    --accent: #2f81f7;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --crit: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button {
+    background: var(--bg-elev-2); color: var(--text);
+    border: 1px solid var(--border); padding: 6px 12px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: var(--border); }
+  button.primary { background: var(--accent); border-color: var(--accent); }
+  button.primary:hover { background: #1f6feb; }
+  button.danger { background: #21262d; border-color: var(--crit); color: var(--crit); }
+  input, select, textarea {
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); padding: 6px 10px;
+    border-radius: 6px; font-size: 13px; font-family: inherit;
+    width: 100%;
+  }
+  textarea { font-family: inherit; min-height: 80px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left; padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  th { color: var(--text-mute); font-weight: 600; }
+  tr:hover td { background: var(--bg-elev); }
+
+  /* Layout */
+  #app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  #sidebar {
+    background: var(--bg-elev); border-right: 1px solid var(--border);
+    padding: 16px 0;
+  }
+  #sidebar .brand {
+    padding: 0 16px 16px; border-bottom: 1px solid var(--border);
+    font-weight: 700; font-size: 16px;
+  }
+  #sidebar .brand small { color: var(--text-mute); font-weight: 400; font-size: 11px; display: block; }
+  #sidebar nav { padding: 12px 0; }
+  #sidebar nav a {
+    display: block; padding: 8px 16px; color: var(--text); font-size: 13px;
+  }
+  #sidebar nav a.active { background: var(--bg-elev-2); border-left: 3px solid var(--accent); padding-left: 13px; }
+  #sidebar nav a:hover { background: var(--bg-elev-2); text-decoration: none; }
+  #sidebar .badge {
+    background: var(--crit); color: #fff; font-size: 10px;
+    padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+  }
+  #main { display: flex; flex-direction: column; min-width: 0; }
+  #topbar {
+    background: var(--bg-elev); border-bottom: 1px solid var(--border);
+    padding: 10px 20px; display: flex; align-items: center; justify-content: space-between;
+  }
+  #topbar .user { color: var(--text-mute); font-size: 13px; }
+  #topbar .user b { color: var(--text); }
+  #content { padding: 24px; flex: 1; overflow: auto; }
+
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  h2 { font-size: 16px; margin: 24px 0 12px; }
+  .muted { color: var(--text-mute); }
+  .right { text-align: right; }
+
+  /* Cards */
+  .grid { display: grid; gap: 12px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .card {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-mute); font-weight: 500; }
+  .card .big { font-size: 24px; font-weight: 600; }
+  .card .sub { color: var(--text-mute); font-size: 12px; margin-top: 4px; }
+
+  /* Status pills */
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+  }
+  .pill-ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .pill-warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .pill-crit { background: rgba(248,81,73,.15); color: var(--crit); }
+  .pill-info { background: rgba(47,129,247,.15); color: var(--accent); }
+
+  /* Login overlay */
+  #login {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); z-index: 999;
+  }
+  #login .box { width: 360px; padding: 32px; background: var(--bg-elev);
+    border: 1px solid var(--border); border-radius: 10px; }
+  #login h1 { font-size: 18px; }
+  #login .err { color: var(--crit); margin-top: 8px; min-height: 18px; font-size: 12px; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .toolbar input, .toolbar select { width: auto; min-width: 200px; }
+  .toolbar .spacer { flex: 1; }
+
+  .empty { text-align: center; color: var(--text-mute); padding: 32px; }
+
+  /* Modal */
+  #modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  #modal.open { display: flex; }
+  #modal .box {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 8px; padding: 24px; max-width: 720px; max-height: 80vh;
+    overflow: auto; width: 90%;
+  }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 12px; color: var(--text-mute); margin-bottom: 4px; }
+
+  /* Kanban */
+  .kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kanban .col { background: var(--bg-elev); border-radius: 6px; padding: 8px; }
+  .kanban .col h3 { font-size: 12px; margin: 4px 0 8px; padding: 0 4px; }
+  .kanban .item {
+    background: var(--bg-elev-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 12px;
+  }
+
+  /* Search results */
+  .search-result { display: block; padding: 8px 12px; border-radius: 4px; }
+  .search-result:hover { background: var(--bg-elev-2); text-decoration: none; }
+  .search-result .type {
+    display: inline-block; min-width: 70px; font-size: 10px;
+    color: var(--text-mute); text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN OVERLAY -->
+<div id="login">
+  <div class="box">
+    <h1>IBS HI Sale Platform</h1>
+    <p class="muted">Enter your X-API-Key to continue.</p>
+    <div class="form-row">
+      <input id="login-key" type="password" placeholder="X-API-Key" autofocus />
+    </div>
+    <button class="primary" style="width:100%" onclick="doLogin()">Sign in</button>
+    <div class="err" id="login-err"></div>
+    <p class="muted" style="margin-top:24px;font-size:11px">
+      Dev fallback key: <code>dev-key-local-only</code> (only works when SALE_ENV=development).
+    </p>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="app" style="display:none">
+  <aside id="sidebar">
+    <div class="brand">IBS HI Sale<small>Sale Platform v4</small></div>
+    <nav>
+      <a href="#dashboard" data-screen="dashboard">Dashboard</a>
+      <a href="#my" data-screen="my">My Day</a>
+      <a href="#customers" data-screen="customers">Customers</a>
+      <a href="#pipeline" data-screen="pipeline">Pipeline</a>
+      <a href="#quotations" data-screen="quotations">Quotations</a>
+      <a href="#tasks" data-screen="tasks">Tasks</a>
+      <a href="#search" data-screen="search">Search</a>
+    </nav>
+  </aside>
+  <main id="main">
+    <header id="topbar">
+      <div>
+        <input id="quicksearch" placeholder="Quick search…"
+               style="width:260px"
+               onkeydown="if(event.key==='Enter')doQuickSearch()" />
+      </div>
+      <div class="user">
+        <span id="notif-bell" style="margin-right:12px;cursor:pointer"
+              onclick="navigate('notifications')" title="Notifications"></span>
+        <b id="user-label">…</b> ·
+        <span id="tier-label" class="muted"></span> ·
+        <a href="#" onclick="doLogout();return false">Sign out</a>
+      </div>
+    </header>
+    <section id="content"><p class="muted">Loading…</p></section>
+  </main>
+</div>
+
+<!-- MODAL -->
+<div id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="box" id="modal-box"></div>
+</div>
+
+<script>
+'use strict';
+
+// ─── Config ──────────────────────────────────────────────────────────
+const API_BASE = window.location.origin + '/api/v1';
+let API_KEY = sessionStorage.getItem('apiKey') || '';
+let CURRENT_USER = null;       // { tier, profile: {email, user_name, ...} }
+
+// ─── HTTP helpers ────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const headers = {
+    'X-API-Key': API_KEY,
+    ...(opts.headers || {}),
+  };
+  if (opts.body && typeof opts.body !== 'string' && !(opts.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(opts.body);
+  }
+  const r = await fetch(API_BASE + path, { ...opts, headers });
+  if (r.status === 401) {
+    sessionStorage.removeItem('apiKey');
+    location.reload();
+    throw new Error('Unauthorized');
+  }
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try { msg = (await r.json()).detail || msg; } catch {}
+    throw new Error(msg);
+  }
+  const ct = r.headers.get('Content-Type') || '';
+  if (ct.includes('application/json')) return r.json();
+  return r.text();
+}
+
+function fmt(n, currency = '') {
+  if (n == null || n === '') return '—';
+  if (typeof n !== 'number') n = Number(n);
+  if (isNaN(n)) return String(n);
+  if (Math.abs(n) >= 1_000_000) return currency + (n / 1_000_000).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1000) return currency + (n / 1000).toFixed(1) + 'k';
+  return currency + n.toLocaleString();
+}
+function pill(text, kind = 'info') {
+  return `<span class="pill pill-${kind}">${escapeHtml(text)}</span>`;
+}
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+function statusPill(s) {
+  const k = String(s || '').toUpperCase();
+  if (['WON','COMPLETED','PAID','APPROVED','DONE','OK','ACTIVE'].includes(k)) return pill(k, 'ok');
+  if (['LOST','CANCELLED','REJECTED','VOID','OVERDUE','DELETED','CRIT','ERROR'].includes(k)) return pill(k, 'crit');
+  if (['PENDING','SENT','NEGOTIATION','IN_PROGRESS','DRAFT','WARN','EXPIRED','CALCULATED'].includes(k)) return pill(k, 'warn');
+  return pill(k || '?', 'info');
+}
+
+// ─── Login ───────────────────────────────────────────────────────────
+async function doLogin() {
+  const key = document.getElementById('login-key').value.trim();
+  if (!key) return;
+  API_KEY = key;
+  try {
+    const me = await api('/auth/me');
+    sessionStorage.setItem('apiKey', key);
+    CURRENT_USER = me;
+    bootApp();
+  } catch (e) {
+    document.getElementById('login-err').textContent = e.message || 'Login failed';
+  }
+}
+function doLogout() {
+  sessionStorage.removeItem('apiKey');
+  location.reload();
+}
+
+async function tryAutoLogin() {
+  if (!API_KEY) { showLogin(); return; }
+  try {
+    CURRENT_USER = await api('/auth/me');
+    bootApp();
+  } catch {
+    showLogin();
+  }
+}
+function showLogin() {
+  document.getElementById('login').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+function bootApp() {
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+  const profile = CURRENT_USER.profile || {};
+  document.getElementById('user-label').textContent =
+    profile.user_name || profile.email || '(no profile)';
+  document.getElementById('tier-label').textContent = CURRENT_USER.tier;
+  refreshNotificationBell();
+  setInterval(refreshNotificationBell, 60000);
+  // route by hash
+  navigate((location.hash || '#dashboard').slice(1));
+  window.addEventListener('hashchange', () => {
+    navigate((location.hash || '#dashboard').slice(1));
+  });
+}
+
+async function refreshNotificationBell() {
+  try {
+    const d = await api('/notifications/count');
+    const bell = document.getElementById('notif-bell');
+    if (d.unread > 0) bell.innerHTML = `🔔 <span class="pill pill-crit">${d.unread}</span>`;
+    else bell.innerHTML = '🔔';
+  } catch {}
+}
+
+// ─── Routing ─────────────────────────────────────────────────────────
+const SCREENS = {};
+function navigate(name) {
+  // highlight nav
+  document.querySelectorAll('#sidebar nav a').forEach(a => {
+    a.classList.toggle('active', a.dataset.screen === name);
+  });
+  const fn = SCREENS[name] || SCREENS.dashboard;
+  const c = document.getElementById('content');
+  c.innerHTML = '<p class="muted">Loading…</p>';
+  Promise.resolve(fn()).then(html => { c.innerHTML = html; }).catch(e => {
+    c.innerHTML = `<div class="card"><h3>Error</h3><p>${escapeHtml(e.message)}</p></div>`;
+  });
+}
+
+// ─── Modal ───────────────────────────────────────────────────────────
+function openModal(html) {
+  document.getElementById('modal-box').innerHTML = html;
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+// ─── Screen 1: Dashboard ────────────────────────────────────────────
+SCREENS.dashboard = async function() {
+  const d = await api('/dashboard/summary');
+  const t = d.totals || {};
+  const k = d.khkd_target || {};
+  const q = d.quotations || {};
+  const m = d.milestones || {};
+  const f = d.follow_ups || {};
+  const stages = (d.pipeline && d.pipeline.by_stage) || [];
+  return `
+    <h1>Dashboard <span class="muted" style="font-size:13px;font-weight:normal">FY ${escapeHtml(d.fiscal_year)}</span></h1>
+    <div class="grid grid-4">
+      <div class="card"><h3>Customers</h3><div class="big">${t.customers||0}</div><div class="sub">${t.contacts||0} contacts</div></div>
+      <div class="card"><h3>Opportunities</h3><div class="big">${t.opportunities||0}</div><div class="sub">${fmt(d.pipeline?.weighted_value_usd, '$')} weighted</div></div>
+      <div class="card"><h3>Quotations</h3><div class="big">${t.quotations||0}</div><div class="sub">${q.win_rate_pct||0}% win rate · ${q.won||0} won</div></div>
+      <div class="card"><h3>Active Contracts</h3><div class="big">${t.contracts||0}</div><div class="sub">${m.total||0} milestones, ${m.overdue||0} overdue</div></div>
+    </div>
+    <div class="grid grid-4" style="margin-top:12px">
+      <div class="card"><h3>KHKD Coverage</h3><div class="big">${k.coverage_pct||0}%</div><div class="sub">target ${fmt(k.total_revenue,'$')}</div></div>
+      <div class="card"><h3>Tasks</h3><div class="big">${(d.tasks||{}).total||0}</div><div class="sub">${(d.tasks||{}).overdue||0} overdue, ${(d.tasks||{}).pending||0} pending</div></div>
+      <div class="card"><h3>Follow-ups</h3><div class="big">${f.total||0}</div><div class="sub">${f.overdue||0} overdue, ${f.due_today||0} today</div></div>
+      <div class="card"><h3>Notifications</h3><div class="big">${(d.notifications||{}).unread||0}</div><div class="sub">${(d.notifications||{}).total||0} total</div></div>
+    </div>
+    <h2>Pipeline by Stage</h2>
+    <table>
+      <thead><tr><th>Stage</th><th class="right">Count</th><th class="right">Value (USD)</th></tr></thead>
+      <tbody>
+      ${stages.map(s => `
+        <tr><td>${statusPill(s.stage)}</td>
+            <td class="right">${s.count}</td>
+            <td class="right">${fmt(s.total_value,'$')}</td></tr>
+      `).join('')}
+      </tbody>
+    </table>
+  `;
+};
+
+// ─── Screen 2: My Day ────────────────────────────────────────────────
+SCREENS.my = async function() {
+  const profile = CURRENT_USER.profile || {};
+  const userId = profile.email || profile.user_name;
+  if (!userId) return '<div class="card">No user profile linked to this API key.</div>';
+  const d = await api('/dashboard/my?user=' + encodeURIComponent(userId));
+  const tasks = d.tasks || {};
+  const fu = d.follow_ups || {};
+  const pl = d.pipeline || {};
+  const recent = d.recent_activity || [];
+  return `
+    <h1>My Day — ${escapeHtml(userId)}</h1>
+    <div class="grid grid-4">
+      <div class="card"><h3>My Tasks</h3><div class="big">${tasks.total||0}</div>
+        <div class="sub">${tasks.overdue||0} overdue · ${tasks.in_progress||0} in progress</div></div>
+      <div class="card"><h3>My Pipeline</h3><div class="big">${pl.total||0}</div>
+        <div class="sub">${fmt(pl.weighted_value,'$')} weighted</div></div>
+      <div class="card"><h3>Follow-ups</h3><div class="big">${fu.today||0}</div>
+        <div class="sub">today · ${fu.overdue||0} overdue · ${fu.this_week||0} this week</div></div>
+      <div class="card"><h3>Notifications</h3><div class="big">${(d.notifications||{}).unread||0}</div>
+        <div class="sub">unread</div></div>
+    </div>
+    <h2>Recent Activity</h2>
+    ${recent.length ? `
+      <table><thead><tr><th>Date</th><th>Type</th><th>Title</th><th>Customer</th></tr></thead><tbody>
+        ${recent.map(r => `<tr>
+          <td>${escapeHtml((r.dt||'').slice(0,10))}</td>
+          <td>${pill(r.kind, 'info')}</td>
+          <td>${escapeHtml(r.title || '')}</td>
+          <td>${escapeHtml(r.customer_name || '')}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    ` : '<div class="empty">No recent activity logged for this user.</div>'}
+  `;
+};
+
+// ─── Screen 3: Customers ─────────────────────────────────────────────
+SCREENS.customers = async function() {
+  const d = await api('/customers?limit=50');
+  return `
+    <h1>Customers</h1>
+    <div class="toolbar">
+      <input id="cust-search" placeholder="Search by name, code, country…"
+             onkeydown="if(event.key==='Enter')searchCustomers()" />
+      <button onclick="searchCustomers()">Search</button>
+      <div class="spacer"></div>
+      <button class="primary" onclick="customerCreateModal()">+ New customer</button>
+      <button onclick="window.open(API_BASE + '/io/export/customers?status=ACTIVE')">Export CSV</button>
+    </div>
+    <p class="muted">${d.total} total · showing ${d.items.length}</p>
+    ${customerTable(d.items)}
+  `;
+};
+async function searchCustomers() {
+  const q = document.getElementById('cust-search').value.trim();
+  const path = q ? `/customers/search?q=${encodeURIComponent(q)}` : '/customers?limit=50';
+  const d = await api(path);
+  document.querySelector('#content table')?.parentElement?.replaceWith(_html(customerTable(d.items)));
+}
+function customerTable(items) {
+  if (!items.length) return '<div class="empty">No customers found.</div>';
+  return `<table><thead><tr><th>Code</th><th>Name</th><th>Country</th><th>Status</th></tr></thead><tbody>
+    ${items.map(c => `<tr onclick="openCustomer('${c.id}')" style="cursor:pointer">
+      <td>${escapeHtml(c.code||'')}</td>
+      <td>${escapeHtml(c.name||'')}</td>
+      <td>${escapeHtml(c.country||'')}</td>
+      <td>${statusPill(c.status||'ACTIVE')}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+function _html(s) { const t = document.createElement('template'); t.innerHTML = s.trim(); return t.content.firstChild; }
+
+async function openCustomer(id) {
+  const d = await api('/customers/' + id);
+  const c = d.customer;
+  openModal(`
+    <h2 style="margin-top:0">${escapeHtml(c.name)} <small class="muted">${escapeHtml(c.code||'')}</small></h2>
+    <div class="grid grid-2">
+      <div><b class="muted">Country:</b> ${escapeHtml(c.country||'—')}</div>
+      <div><b class="muted">Region:</b> ${escapeHtml(c.region||'—')}</div>
+      <div><b class="muted">Status:</b> ${statusPill(c.status||'')}</div>
+      <div><b class="muted">Website:</b> ${escapeHtml(c.website||'—')}</div>
+    </div>
+    <h3>Contacts (${(d.contacts||[]).length})</h3>
+    <table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Position</th></tr></thead>
+    <tbody>${(d.contacts||[]).slice(0,8).map(ct => `<tr>
+      <td>${escapeHtml(ct.name||'')}</td><td>${escapeHtml(ct.email||'')}</td>
+      <td>${escapeHtml(ct.phone||'')}</td><td>${escapeHtml(ct.position||'')}</td>
+    </tr>`).join('') || '<tr><td colspan=4 class="empty">No contacts</td></tr>'}</tbody></table>
+    <h3>Opportunities (${(d.opportunities||[]).length})</h3>
+    <table><thead><tr><th>Project</th><th>Stage</th><th>Value</th></tr></thead><tbody>
+    ${(d.opportunities||[]).slice(0,8).map(o => `<tr>
+      <td>${escapeHtml(o.project_name||'')}</td>
+      <td>${statusPill(o.stage||'')}</td>
+      <td class="right">${fmt(o.contract_value_usd, '$')}</td></tr>`).join('') || '<tr><td colspan=3 class="empty">No opportunities</td></tr>'}
+    </tbody></table>
+    <h3>Recent Interactions</h3>
+    ${(d.interactions||[]).length ? `<table><tbody>
+      ${(d.interactions||[]).slice(0,5).map(i => `<tr>
+        <td>${escapeHtml(i.interaction_date||'')}</td>
+        <td>${pill(i.interaction_type||'', 'info')}</td>
+        <td>${escapeHtml(i.subject||'')}</td>
+      </tr>`).join('')}
+    </tbody></table>` : '<div class="empty">No interactions logged.</div>'}
+    <div style="margin-top:16px;text-align:right">
+      <button onclick="closeModal()">Close</button>
+    </div>
+  `);
+}
+
+function customerCreateModal() {
+  openModal(`
+    <h2 style="margin-top:0">New Customer</h2>
+    <div class="form-row"><label>Name *</label><input id="nc-name" /></div>
+    <div class="form-row"><label>Code (auto if blank)</label><input id="nc-code" /></div>
+    <div class="form-row"><label>Country</label><input id="nc-country" /></div>
+    <div class="form-row"><label>Region</label><input id="nc-region" /></div>
+    <div class="form-row"><label>Business Description</label>
+      <textarea id="nc-desc"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitNewCustomer()">Create</button>
+    </div>
+    <div id="nc-err" class="err" style="color:var(--crit);margin-top:8px"></div>
+  `);
+}
+async function submitNewCustomer() {
+  const name = document.getElementById('nc-name').value.trim();
+  if (!name) { document.getElementById('nc-err').textContent = 'Name required'; return; }
+  try {
+    const r = await api('/customers', {
+      method: 'POST',
+      body: {
+        name,
+        code: document.getElementById('nc-code').value.trim() || null,
+        country: document.getElementById('nc-country').value.trim() || null,
+        region: document.getElementById('nc-region').value.trim() || null,
+        business_description: document.getElementById('nc-desc').value.trim() || null,
+      },
+    });
+    closeModal();
+    navigate('customers');
+  } catch (e) {
+    document.getElementById('nc-err').textContent = e.message;
+  }
+}
+
+// ─── Screen 4: Pipeline ──────────────────────────────────────────────
+SCREENS.pipeline = async function() {
+  const d = await api('/opportunities?limit=100');
+  return `
+    <h1>Pipeline</h1>
+    <p class="muted">${d.total} total · showing ${d.items.length}</p>
+    <table><thead><tr>
+      <th>Project</th><th>Customer</th><th>Stage</th><th>Group</th>
+      <th class="right">Value</th><th class="right">Win %</th>
+      <th>AM</th>
+    </tr></thead><tbody>
+    ${d.items.map(o => `<tr onclick="openOpportunity('${o.id}')" style="cursor:pointer">
+      <td>${escapeHtml(o.project_name||'')}</td>
+      <td>${escapeHtml(o.customer_name||'')}</td>
+      <td>${statusPill(o.stage||'')}</td>
+      <td>${escapeHtml(o.product_group||'')}</td>
+      <td class="right">${fmt(o.contract_value_usd, '$')}</td>
+      <td class="right">${o.win_probability||0}%</td>
+      <td>${escapeHtml(o.assigned_to||'')}</td>
+    </tr>`).join('')}
+    </tbody></table>
+  `;
+};
+async function openOpportunity(id) {
+  const d = await api('/opportunities/' + id);
+  const o = d.opportunity;
+  openModal(`
+    <h2 style="margin-top:0">${escapeHtml(o.project_name||'')}</h2>
+    <p class="muted">${escapeHtml(o.customer_name||'')} · ${escapeHtml(o.product_group||'')}</p>
+    <div class="grid grid-2">
+      <div><b class="muted">Stage:</b> ${statusPill(o.stage||'')}</div>
+      <div><b class="muted">Win:</b> ${o.win_probability||0}%</div>
+      <div><b class="muted">Value:</b> ${fmt(o.contract_value_usd, '$')}</div>
+      <div><b class="muted">Weight:</b> ${o.weight_ton||0} t</div>
+      <div><b class="muted">Assigned:</b> ${escapeHtml(o.assigned_to||'—')}</div>
+      <div><b class="muted">Signing:</b> ${escapeHtml(o.estimated_signing||'—')}</div>
+    </div>
+    <p style="margin-top:8px"><b class="muted">Allowed next stages:</b>
+      ${(d.allowed_next_stages||[]).map(s => statusPill(s)).join(' ') || '—'}</p>
+    <h3>Milestones (${(d.milestones||[]).length})</h3>
+    ${(d.milestones||[]).length ? `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Planned</th></tr></thead>
+      <tbody>${(d.milestones||[]).slice(0,8).map(m => `<tr>
+        <td>${m.milestone_number}</td>
+        <td>${escapeHtml(m.title||'')}</td>
+        <td>${statusPill(m.invoice_status||'')}</td>
+        <td>${escapeHtml(m.planned_date||'')}</td>
+      </tr>`).join('')}</tbody></table>` : '<div class="empty">No milestones.</div>'}
+    <h3>Quotation Revisions (${(d.quotation_revisions||[]).length})</h3>
+    ${(d.quotation_revisions||[]).length ? `<table><tbody>${(d.quotation_revisions||[]).slice(0,5).map(r => `<tr>
+      <td>Rev ${r.revision_number}</td><td>${escapeHtml(r.revision_date||'')}</td>
+      <td class="right">${fmt(r.total_value_usd, '$')}</td><td>${escapeHtml(r.customer_response||'')}</td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">No revisions.</div>'}
+    <div style="margin-top:16px;text-align:right"><button onclick="closeModal()">Close</button></div>
+  `);
+}
+
+// ─── Screen 5: Quotations ────────────────────────────────────────────
+SCREENS.quotations = async function() {
+  const d = await api('/quotations?limit=100');
+  const wr = await api('/quotations/win-rate').catch(() => null);
+  return `
+    <h1>Quotations</h1>
+    ${wr ? `<div class="grid grid-4">
+      <div class="card"><h3>Total</h3><div class="big">${wr.total_quotations}</div></div>
+      <div class="card"><h3>Won</h3><div class="big">${wr.won_count}</div></div>
+      <div class="card"><h3>Lost</h3><div class="big">${wr.lost_count}</div></div>
+      <div class="card"><h3>Win Rate</h3><div class="big">${wr.win_rate_pct}%</div>
+        <div class="sub">${fmt(wr.won_value_usd, '$')} won value</div></div>
+    </div>` : ''}
+    <div class="toolbar" style="margin-top:16px">
+      <button class="primary" onclick="quotationCreateModal()">+ New quotation</button>
+      <button onclick="window.open(API_BASE + '/io/export/quotations')">Export CSV</button>
+    </div>
+    <table><thead><tr>
+      <th>#</th><th>Project</th><th>Customer</th><th>Status</th>
+      <th class="right">Value (USD)</th><th>Date</th><th>Incharge</th>
+    </tr></thead><tbody>
+    ${d.items.slice(0, 50).map(q => `<tr>
+      <td>${q.quotation_no}</td>
+      <td>${escapeHtml(q.project_name||'')}</td>
+      <td>${escapeHtml(q.customer_name||'')}</td>
+      <td>${statusPill(q.status||'')}</td>
+      <td class="right">${fmt(q.value_usd, '$')}</td>
+      <td>${escapeHtml(q.date_offer||'')}</td>
+      <td>${escapeHtml(q.incharge||'')}</td>
+    </tr>`).join('')}
+    </tbody></table>
+  `;
+};
+function quotationCreateModal() {
+  openModal(`
+    <h2 style="margin-top:0">New Quotation (DRAFT)</h2>
+    <div class="form-row"><label>Project Name *</label><input id="nq-name" /></div>
+    <div class="form-row"><label>Customer Name (legacy) or Code</label>
+      <input id="nq-cust" placeholder="e.g. Vogt Power" /></div>
+    <div class="form-row"><label>Product Type</label><input id="nq-product" /></div>
+    <div class="form-row"><label>Weight (ton)</label><input id="nq-weight" type="number" /></div>
+    <div class="form-row"><label>Value USD</label><input id="nq-value" type="number" /></div>
+    <div class="form-row"><label>Incharge</label><input id="nq-incharge" /></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitNewQuotation()">Create DRAFT</button>
+    </div>
+    <div id="nq-err" class="err" style="color:var(--crit);margin-top:8px"></div>
+  `);
+}
+async function submitNewQuotation() {
+  const name = document.getElementById('nq-name').value.trim();
+  if (!name) { document.getElementById('nq-err').textContent = 'Project name required'; return; }
+  try {
+    await api('/quotations', {
+      method: 'POST',
+      body: {
+        project_name: name,
+        customer_name: document.getElementById('nq-cust').value.trim() || null,
+        product_type: document.getElementById('nq-product').value.trim() || null,
+        weight_ton: Number(document.getElementById('nq-weight').value) || null,
+        value_usd: Number(document.getElementById('nq-value').value) || null,
+        incharge: document.getElementById('nq-incharge').value.trim() || null,
+      },
+    });
+    closeModal();
+    navigate('quotations');
+  } catch (e) {
+    document.getElementById('nq-err').textContent = e.message;
+  }
+}
+
+// ─── Screen 6: Tasks (Kanban) ────────────────────────────────────────
+SCREENS.tasks = async function() {
+  const board = await api('/tasks/board');
+  const columns = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE'];
+  return `
+    <h1>Tasks</h1>
+    <div class="kanban">
+      ${columns.map(c => `
+        <div class="col">
+          <h3>${c} <span class="muted">(${(board[c]||[]).length})</span></h3>
+          ${(board[c]||[]).slice(0, 30).map(t => `
+            <div class="item">
+              <div><b>${escapeHtml(t.title||'')}</b></div>
+              <div class="muted">${escapeHtml(t.task_type||'')} · ${escapeHtml(t.assigned_to||'?')}</div>
+              ${t.due_date ? `<div class="muted">Due: ${escapeHtml(t.due_date.slice(0,10))}</div>` : ''}
+            </div>
+          `).join('') || '<div class="empty muted">empty</div>'}
+        </div>`).join('')}
+    </div>
+  `;
+};
+
+// ─── Screen 7: Search ────────────────────────────────────────────────
+SCREENS.search = async function() {
+  const q = (location.hash.split('?q=')[1] || '');
+  return `
+    <h1>Search</h1>
+    <div class="toolbar">
+      <input id="search-q" value="${escapeHtml(decodeURIComponent(q))}"
+             placeholder="Search across customers, contacts, opportunities, quotations, emails…"
+             onkeydown="if(event.key==='Enter')doSearch()" />
+      <button class="primary" onclick="doSearch()">Search</button>
+    </div>
+    <div id="search-results"></div>
+    ${q ? '<script>doSearch()</'+'script>' : ''}
+  `;
+};
+async function doSearch() {
+  const q = document.getElementById('search-q').value.trim();
+  if (q.length < 2) return;
+  location.hash = '#search?q=' + encodeURIComponent(q);
+  const d = await api('/search?q=' + encodeURIComponent(q));
+  const out = document.getElementById('search-results');
+  if (!d.results.length) { out.innerHTML = '<div class="empty">No results.</div>'; return; }
+  out.innerHTML = `
+    <p class="muted">${d.total} hits — ${Object.entries(d.counts_by_type).map(([k,v]) => `${k}: ${v}`).join(' · ')}</p>
+    ${d.results.map(r => `
+      <a class="search-result" href="#${linkForResult(r)}">
+        <span class="type">${r.entity_type}</span>
+        <b>${escapeHtml(r.title||'')}</b>
+        <span class="muted"> — ${escapeHtml(r.subtitle||'')}</span>
+      </a>
+    `).join('')}
+  `;
+}
+function linkForResult(r) {
+  // For now, re-search-friendly hash. Click expansion can be added later.
+  return r.entity_type + '?id=' + r.entity_id;
+}
+function doQuickSearch() {
+  const q = document.getElementById('quicksearch').value.trim();
+  if (q) location.hash = '#search?q=' + encodeURIComponent(q);
+  navigate('search');
+}
+
+// ─── Screen 8: Notifications ─────────────────────────────────────────
+SCREENS.notifications = async function() {
+  const d = await api('/notifications?limit=50');
+  return `
+    <h1>Notifications</h1>
+    <div class="toolbar">
+      <button onclick="markAllRead()">Mark all read</button>
+    </div>
+    ${d.items.length ? `<table><thead>
+      <tr><th>Severity</th><th>Type</th><th>Title</th><th>Message</th><th>When</th><th></th></tr>
+    </thead><tbody>
+    ${d.items.map(n => `<tr style="${n.is_read?'opacity:.5':''}">
+      <td>${pill(n.severity||'INFO', n.severity==='CRIT'?'crit':(n.severity==='WARN'?'warn':'info'))}</td>
+      <td>${escapeHtml(n.type||'')}</td>
+      <td><b>${escapeHtml(n.title||'')}</b></td>
+      <td class="muted">${escapeHtml(n.message||'')}</td>
+      <td>${escapeHtml((n.created_at||'').slice(0,16))}</td>
+      <td>${n.is_read ? '' : `<button onclick="markRead('${n.id}')">Mark read</button>`}</td>
+    </tr>`).join('')}
+    </tbody></table>` : '<div class="empty">No notifications.</div>'}
+  `;
+};
+async function markRead(id) {
+  await api('/notifications/' + id + '/read', { method: 'PATCH' });
+  navigate('notifications');
+  refreshNotificationBell();
+}
+async function markAllRead() {
+  await api('/notifications/read-all', { method: 'PATCH' });
+  navigate('notifications');
+  refreshNotificationBell();
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────
+tryAutoLogin();
+</script>
+</body>
+</html>

@@ -4,15 +4,22 @@ Handles bidirectional integration with ibshi1 PM platform.
 Includes project status, task sync, timeline, and draft email management.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 import httpx
-from ..database import query, execute
-from .. import config
 from datetime import datetime
 import uuid
 import json
+
+try:
+    from ..database import query, execute
+    from ..auth import require_write
+    from .. import config
+except ImportError:
+    from database import query, execute
+    from auth import require_write
+    import config
 
 router = APIRouter(prefix="/pm-integration", tags=["PM Integration"])
 
@@ -101,7 +108,7 @@ async def get_project_status(project_code: str):
     return result
 
 
-@router.post("/tasks")
+@router.post("/tasks", dependencies=[Depends(require_write)])
 async def create_pm_task(task: WorkflowTaskCreate):
     """
     Create a WorkflowTask in ibshi1 from Sale context.
@@ -171,7 +178,7 @@ async def get_project_timeline(project_code: str):
     return result
 
 
-@router.post("/draft-reply")
+@router.post("/draft-reply", dependencies=[Depends(require_write)])
 async def create_draft_reply(draft: DraftReplyCreate):
     """
     Draft a customer email reply based on PM data.
@@ -221,7 +228,7 @@ async def create_draft_reply(draft: DraftReplyCreate):
     }
 
 
-@router.patch("/draft-reply/{draft_id}/approve")
+@router.patch("/draft-reply/{draft_id}/approve", dependencies=[Depends(require_write)])
 async def approve_draft_reply(draft_id: str, approval: DraftReplyApprove):
     """
     Approve a draft email and send via Gmail API.

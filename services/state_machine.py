@@ -53,6 +53,27 @@ TASK_TRANSITIONS: Dict[str, Set[str]] = {
 TASK_STATUSES = list(TASK_TRANSITIONS.keys())
 
 
+# ═══════════════════════════════════════════════════════════════
+# QUOTATION STATUS TRANSITIONS
+# ═══════════════════════════════════════════════════════════════
+#
+# DRAFT → SENT → NEGOTIATION → WON
+#                            → LOST → DRAFT (reopen)
+#                            → EXPIRED → DRAFT (reopen)
+
+QUOTATION_TRANSITIONS: Dict[str, Set[str]] = {
+    "DRAFT":       {"SENT", "NEGOTIATION", "CANCELLED"},
+    "SENT":        {"NEGOTIATION", "WON", "LOST", "EXPIRED"},
+    "NEGOTIATION": {"WON", "LOST", "EXPIRED"},
+    "WON":         set(),               # Terminal — promoted to contract
+    "LOST":        {"DRAFT"},           # Reopen
+    "EXPIRED":     {"DRAFT"},           # Reopen with new validity
+    "CANCELLED":   set(),               # Terminal
+}
+
+QUOTATION_STATUSES = list(QUOTATION_TRANSITIONS.keys())
+
+
 class InvalidTransitionError(Exception):
     """Raised when an invalid state transition is attempted."""
 
@@ -146,3 +167,34 @@ def get_allowed_task_transitions(current_status: str) -> List[str]:
     if current_status not in TASK_TRANSITIONS:
         return []
     return sorted(TASK_TRANSITIONS[current_status])
+
+
+def validate_quotation_transition(current_status: str, new_status: str) -> bool:
+    """Validate a quotation status transition.
+
+    Raises:
+        InvalidTransitionError: If the transition is not allowed.
+        ValueError: If the status is not recognized.
+    """
+    # Treat NULL/empty current as DRAFT for legacy rows that predate
+    # the workflow status convention.
+    cur = (current_status or "DRAFT").upper()
+    new = (new_status or "").upper()
+
+    if cur not in QUOTATION_TRANSITIONS:
+        raise ValueError(f"Unknown quotation status: {current_status}")
+    if new not in QUOTATION_TRANSITIONS:
+        raise ValueError(f"Unknown quotation status: {new_status}")
+
+    allowed = QUOTATION_TRANSITIONS[cur]
+    if new not in allowed:
+        raise InvalidTransitionError("quotation_status", cur, new, allowed)
+    return True
+
+
+def get_allowed_quotation_transitions(current_status: str) -> List[str]:
+    """Get list of allowed next statuses for a quotation."""
+    cur = (current_status or "DRAFT").upper()
+    if cur not in QUOTATION_TRANSITIONS:
+        return []
+    return sorted(QUOTATION_TRANSITIONS[cur])

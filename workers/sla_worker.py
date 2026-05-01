@@ -14,10 +14,12 @@ try:
     from ..database import query, execute
     from ..services.sla_engine import ESCALATION_CHAIN
     from ..services.audit import log_status_change
+    from ..services.notify import write_notification
 except ImportError:
     from database import query, execute
     from services.sla_engine import ESCALATION_CHAIN
     from services.audit import log_status_change
+    from services.notify import write_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -82,6 +84,17 @@ def check_sla():
                                       changed_by="SLA_WORKER")
                     overdue_count += 1
                     logger.info("task_marked_overdue", task_id=task_id)
+
+                    # Notification — first time we flip a task to OVERDUE
+                    write_notification(
+                        notification_type="SLA_OVERDUE",
+                        title=f"Task overdue: {task.get('task_type') or 'task'}",
+                        message=f"Due {task.get('due_date')} — please action or escalate.",
+                        user_id=task.get("assigned_to"),
+                        entity_type="task",
+                        entity_id=task_id,
+                        severity="WARN",
+                    )
 
                 # Escalate if not yet at max level
                 escalation_count = task.get("escalation_count", 0) or 0

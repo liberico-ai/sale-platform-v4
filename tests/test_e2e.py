@@ -248,45 +248,55 @@ def test_flow8_no_key_rejected(client):
 # FLOW 9: NAS File Linking
 # ═══════════════════════════════════════════════════════════
 
-def test_flow9_nas_file_crud(client, admin_headers):
-    entity_id = str(uuid.uuid4())
+def test_flow9_files_crud(client, admin_headers):
+    """sale_nas_file_links is exposed via /api/v1/files (polymorphic)."""
+    # Need a real opportunity to satisfy FK validation in /files POST
+    r = client.post("/api/v1/opportunities", headers=admin_headers, json={
+        "project_name": "Files Test Opp",
+        "customer_name": "Files Test Customer",
+        "product_group": "Other",
+    })
+    assert r.status_code == 200
+    opp_id = r.json()["id"]
 
     # Create link
-    r = client.post("/api/v1/nas-files", headers=admin_headers, json={
+    r = client.post("/api/v1/files", headers=admin_headers, json={
         "entity_type": "opportunity",
-        "entity_id": entity_id,
+        "entity_id": opp_id,
         "nas_path": r"\\192.168.0.200\Sales\test.pdf",
         "file_name": "test.pdf",
         "file_type": "QUOTATION",
     })
-    assert r.status_code == 201
+    assert r.status_code == 200
     file_id = r.json()["id"]
 
-    # List by entity
-    r = client.get(f"/api/v1/nas-files?entity_type=opportunity&entity_id={entity_id}",
-                   headers=admin_headers)
+    # List by opportunity
+    r = client.get(f"/api/v1/files?opportunity_id={opp_id}", headers=admin_headers)
     assert r.status_code == 200
-    items = r.json()
-    assert len(items) >= 1
+    assert r.json()["total"] >= 1
 
     # Get single
-    r = client.get(f"/api/v1/nas-files/{file_id}", headers=admin_headers)
+    r = client.get(f"/api/v1/files/{file_id}", headers=admin_headers)
     assert r.status_code == 200
-    assert r.json()["file_name"] == "test.pdf"
+    assert r.json()["file"]["file_name"] == "test.pdf"
 
     # Delete
-    r = client.delete(f"/api/v1/nas-files/{file_id}", headers=admin_headers)
+    r = client.delete(f"/api/v1/files/{file_id}", headers=admin_headers)
     assert r.status_code == 200
 
     # Verify deleted
-    r = client.get(f"/api/v1/nas-files/{file_id}", headers=admin_headers)
+    r = client.get(f"/api/v1/files/{file_id}", headers=admin_headers)
     assert r.status_code == 404
 
 
-def test_flow9_nas_invalid_entity_type(client, admin_headers):
-    r = client.get("/api/v1/nas-files?entity_type=invalid&entity_id=x",
-                   headers=admin_headers)
-    assert r.status_code == 422
+def test_flow9_files_unknown_opportunity(client, admin_headers):
+    """POST /files validates that referenced opportunity exists."""
+    r = client.post("/api/v1/files", headers=admin_headers, json={
+        "entity_type": "opportunity",
+        "entity_id": "00000000-0000-0000-0000-000000000000",
+        "nas_path": r"\\nas\fake.pdf",
+    })
+    assert r.status_code == 404
 
 
 # ═══════════════════════════════════════════════════════════

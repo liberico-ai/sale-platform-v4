@@ -3,12 +3,18 @@ Users Router
 Manages platform users, roles, departments, and user lifecycle (onboard/offboard).
 """
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional
 from pydantic import BaseModel
-from ..database import query, execute
 from datetime import datetime
 import uuid
+
+try:
+    from ..database import query, execute
+    from ..auth import require_admin
+except ImportError:
+    from database import query, execute
+    from auth import require_admin
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -125,6 +131,70 @@ async def add_user(user: UserCreate):
         "department": user.department,
         "status": "ok",
         "message": f"User onboarded: {user.user_name}"
+    }
+
+
+@router.post("/seed-defaults", dependencies=[Depends(require_admin)])
+async def seed_default_users():
+    """Idempotently seed canonical Sale-team users.
+
+    Inserts only when the email isn't already present. Returns the
+    list of users actually inserted, so re-running is safe.
+    """
+    defaults = [
+        {
+            "user_name": "Admin (Chairman)",
+            "email": "admin@ibs.com.vn",
+            "department": "SALE",
+            "role": "ADMIN",
+        },
+        {
+            "user_name": "Sale Manager",
+            "email": "sale@ibs.com.vn",
+            "department": "SALE",
+            "role": "MANAGER",
+        },
+        {
+            "user_name": "Viewer",
+            "email": "viewer@ibs.com.vn",
+            "department": "SALE",
+            "role": "VIEWER",
+        },
+    ]
+
+    inserted = []
+    skipped = []
+    now = datetime.now().isoformat()
+
+    for u in defaults:
+        existing = query(
+            "SELECT id FROM sale_user_roles WHERE email = ?",
+            [u["email"]],
+            one=True,
+        )
+        if existing:
+            skipped.append(u["email"])
+            continue
+
+        user_id = str(uuid.uuid4())
+        execute(
+            """
+            INSERT INTO sale_user_roles
+                (id, user_name, email, department, role, is_active,
+                 joined_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            [
+                user_id, u["user_name"], u["email"], u["department"],
+                u["role"], now, now, now,
+            ],
+        )
+        inserted.append({"id": user_id, **u})
+
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "summary": f"{len(inserted)} created, {len(skipped)} already existed",
     }
 
 

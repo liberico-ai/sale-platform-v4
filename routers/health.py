@@ -4,16 +4,13 @@ Provides system health status and version information.
 """
 
 from fastapi import APIRouter
-from fastapi.responses import RedirectResponse
-from .. import config
+
+try:
+    from .. import config
+except ImportError:
+    import config
 
 router = APIRouter(tags=["Health"])
-
-
-@router.get("/")
-async def root():
-    """Redirect to dashboard UI."""
-    return RedirectResponse(url="/static/index.html")
 
 
 @router.get("/health")

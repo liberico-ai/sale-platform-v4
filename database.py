@@ -28,7 +28,7 @@ _pg_pool = None
 
 # Schema file paths (relative to project root)
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-_SQLITE_SCHEMA = os.path.join(_PROJECT_ROOT, "schema.sql")
+_SQLITE_SCHEMA = os.path.join(_PROJECT_ROOT, "sql_import", "schema_all.sql")
 _PG_SCHEMA = os.path.join(_PROJECT_ROOT, "schema_pg.sql")
 
 

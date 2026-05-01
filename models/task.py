@@ -1,86 +1,74 @@
-"""
-Task models for IBS HI Sale Platform.
-Defines schemas for task management and workflow.
+"""Task models for IBS HI Sale Platform.
+
+Mirrors sale_tasks (schema_all.sql). NOT NULL columns: task_type, title,
+from_dept, to_dept, status. `notes` does NOT exist on the table — use
+`description` instead.
 """
 
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
 
 class TaskCreate(BaseModel):
     """Request schema for creating a new task."""
     task_type: str
     title: str
-    description: str
-    opportunity_id: Optional[str] = None
-    email_id: Optional[str] = None
     from_dept: str
     to_dept: str
-    assigned_to: str
-    assigned_by: str
-    sla_hours: int
-    due_date: str
-    priority: str = "NORMAL"
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "task_type": "COST_ESTIMATE",
-                "title": "Prepare cost estimate for steel tank project",
-                "description": "Customer needs detailed cost breakdown",
-                "opportunity_id": "opp-001",
-                "email_id": "email-001",
-                "from_dept": "SALE",
-                "to_dept": "TCKT",
-                "assigned_to": "Hiệu",
-                "assigned_by": "Tài",
-                "sla_hours": 24,
-                "due_date": "2026-04-20T17:00:00",
-                "priority": "HIGH",
-            }
-        }
+    description: Optional[str] = None
+    opportunity_id: Optional[str] = None
+    email_id: Optional[str] = None
+    parent_task_id: Optional[str] = None
+    assigned_to: Optional[str] = None
+    assigned_by: Optional[str] = None
+    sla_hours: Optional[int] = None
+    due_date: Optional[str] = None
+    priority: Optional[str] = "NORMAL"
+    nas_file_path: Optional[str] = None
+    attachments: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
-    """Request schema for updating a task."""
+    """Request schema for updating a task. All fields optional."""
     status: Optional[str] = None
     result: Optional[str] = None
     assigned_to: Optional[str] = None
-    notes: Optional[str] = None
+    description: Optional[str] = None
     due_date: Optional[str] = None
     priority: Optional[str] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "COMPLETED",
-                "result": "Cost estimate completed and sent to customer",
-                "notes": "Estimate includes 15% margin",
-            }
-        }
+    sla_hours: Optional[int] = None
 
 
 class TaskResponse(BaseModel):
-    """Response schema for task data."""
+    """Response schema mirroring sale_tasks."""
     id: str
     task_type: str
     title: str
-    description: str
-    opportunity_id: Optional[str]
-    email_id: Optional[str]
     from_dept: str
     to_dept: str
-    assigned_to: str
-    assigned_by: str
-    sla_hours: int
-    due_date: str
-    priority: str
     status: str
-    result: Optional[str]
-    notes: Optional[str]
-    created_at: str
-    updated_at: str
+
+    description: Optional[str] = None
+    opportunity_id: Optional[str] = None
+    email_id: Optional[str] = None
+    parent_task_id: Optional[str] = None
+    assigned_to: Optional[str] = None
+    assigned_by: Optional[str] = None
+    sla_hours: Optional[int] = None
+    due_date: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    result: Optional[str] = None
+    is_escalated: Optional[int] = 0
+    escalated_to: Optional[str] = None
+    escalated_at: Optional[str] = None
+    escalation_count: Optional[int] = 0
+    nas_file_path: Optional[str] = None
+    attachments: Optional[str] = None
+    priority: Optional[str] = "NORMAL"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
     class Config:
         from_attributes = True
