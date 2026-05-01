@@ -3,7 +3,7 @@
 Provides executive-level view aligned with KHKD targets and product categories.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from datetime import datetime
 
 import structlog
@@ -322,6 +322,7 @@ _SUMMARY_TABLES = [
     "sale_audit_log",
     "sale_import_log",
     "sale_pm_sync_log",
+    "sale_notifications",
 ]
 
 
@@ -508,7 +509,48 @@ async def get_summary():
         one=True,
     ) or {}
 
-    # ── Record counts (32 tables) ───────────────────────────────
+    # ── Follow-ups (sale_follow_up_schedules) ──────────────────
+    followups_stats = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) AS done,
+            SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
+            SUM(CASE WHEN status = 'PENDING'
+                     AND next_follow_up < datetime('now') THEN 1 ELSE 0 END) AS overdue,
+            SUM(CASE WHEN status = 'PENDING'
+                     AND date(next_follow_up) = date('now') THEN 1 ELSE 0 END) AS due_today
+        FROM sale_follow_up_schedules
+        """,
+        one=True,
+    ) or {}
+
+    # ── NAS files (sale_nas_file_links) ─────────────────────────
+    files_stats = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            COUNT(DISTINCT file_type) AS distinct_types,
+            COUNT(DISTINCT entity_type) AS distinct_entity_types
+        FROM sale_nas_file_links
+        """,
+        one=True,
+    ) or {}
+
+    # ── Notifications (sale_notifications) ─────────────────────
+    notifications_stats = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread,
+            SUM(CASE WHEN severity = 'CRIT' AND is_read = 0 THEN 1 ELSE 0 END) AS critical_unread
+        FROM sale_notifications
+        """,
+        one=True,
+    ) or {}
+
+    # ── Record counts (33 tables) ───────────────────────────────
     record_counts = {}
     for table in _SUMMARY_TABLES:
         try:
@@ -535,6 +577,9 @@ async def get_summary():
             "settlements": settlements.get("total", 0),
             "emails": emails.get("total", 0),
             "tasks": tasks.get("total", 0),
+            "follow_ups": followups_stats.get("total", 0),
+            "files": files_stats.get("total", 0),
+            "notifications": notifications_stats.get("total", 0),
         },
         "pipeline": {
             "total_opportunities": pipeline.get("total_opps", 0),
@@ -581,5 +626,149 @@ async def get_summary():
         "tasks": dict(tasks),
         "emails": dict(emails),
         "market_signals": dict(signals),
+        "follow_ups": dict(followups_stats),
+        "files": dict(files_stats),
+        "notifications": dict(notifications_stats),
         "record_counts": record_counts,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# /dashboard/my — personal view
+# ═══════════════════════════════════════════════════════════════
+
+@router.get("/my")
+async def get_my_dashboard(
+    user: str = Query(..., description="Email or user_name to scope by"),
+):
+    """Personal dashboard for one Sale user.
+
+    Scopes by `user` against assigned_to / owner / incharge fields. Uses a
+    string match because the platform's user identity is loose today (the
+    same person may appear as 'Hiệu', 'hieunh@ibs.com.vn', or 'Hieu Nguyen'
+    across tables).
+    """
+    now_iso = datetime.now().isoformat()
+
+    # My tasks
+    my_tasks = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress,
+            SUM(CASE WHEN status = 'OVERDUE' THEN 1 ELSE 0 END) AS overdue,
+            SUM(CASE WHEN status = 'COMPLETED'
+                     AND completed_at >= datetime('now', '-7 days')
+                     THEN 1 ELSE 0 END) AS completed_this_week
+        FROM sale_tasks
+        WHERE assigned_to = ?
+        """,
+        [user],
+        one=True,
+    ) or {}
+
+    # My pipeline
+    my_pipeline = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            COALESCE(SUM(contract_value_usd), 0) AS total_value,
+            COALESCE(SUM(contract_value_usd * win_probability / 100.0), 0) AS weighted_value
+        FROM sale_opportunities
+        WHERE assigned_to = ? AND stage NOT IN ('LOST')
+        """,
+        [user],
+        one=True,
+    ) or {}
+
+    my_pipeline_by_stage = query(
+        """
+        SELECT stage, COUNT(*) AS count,
+               COALESCE(SUM(contract_value_usd), 0) AS total_value
+        FROM sale_opportunities
+        WHERE assigned_to = ? AND stage NOT IN ('LOST')
+        GROUP BY stage
+        """,
+        [user],
+    )
+
+    # My follow-ups
+    my_followups = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN status = 'PENDING'
+                     AND date(next_follow_up) = date('now') THEN 1 ELSE 0 END) AS today,
+            SUM(CASE WHEN status = 'PENDING'
+                     AND next_follow_up < datetime('now') THEN 1 ELSE 0 END) AS overdue,
+            SUM(CASE WHEN status = 'PENDING'
+                     AND next_follow_up <= datetime('now', '+7 days')
+                     AND next_follow_up >= datetime('now') THEN 1 ELSE 0 END) AS this_week
+        FROM sale_follow_up_schedules
+        WHERE assigned_to = ?
+        """,
+        [user],
+        one=True,
+    ) or {}
+
+    # My quotations (incharge or owner)
+    my_quotations = query(
+        """
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN UPPER(status) = 'WON' THEN 1 ELSE 0 END) AS won,
+            SUM(CASE WHEN UPPER(status) = 'LOST' THEN 1 ELSE 0 END) AS lost,
+            SUM(CASE WHEN UPPER(status) IN ('DRAFT', 'SENT', 'NEGOTIATION')
+                     THEN 1 ELSE 0 END) AS open
+        FROM sale_quotation_history
+        WHERE incharge = ? OR owner = ?
+        """,
+        [user, user],
+        one=True,
+    ) or {}
+
+    # Recent activity (interactions + emails actioned by user)
+    recent_activity = query(
+        """
+        SELECT 'interaction' AS kind, ci.id, ci.subject AS title,
+               ci.interaction_date AS dt, c.name AS customer_name
+        FROM sale_customer_interactions ci
+        LEFT JOIN sale_customers c ON c.id = ci.customer_id
+        WHERE ci.recorded_by = ?
+        UNION ALL
+        SELECT 'email' AS kind, e.id, e.subject AS title,
+               e.received_at AS dt, c.name AS customer_name
+        FROM sale_emails e
+        LEFT JOIN sale_customers c ON c.id = e.customer_id
+        WHERE e.actioned_by = ?
+        ORDER BY dt DESC
+        LIMIT 10
+        """,
+        [user, user],
+    )
+
+    # My notifications (unread)
+    my_notifications = query(
+        """
+        SELECT COUNT(*) AS unread
+        FROM sale_notifications
+        WHERE is_read = 0 AND (user_id = ? OR user_id IS NULL)
+        """,
+        [user],
+        one=True,
+    ) or {}
+
+    return {
+        "user": user,
+        "timestamp": now_iso,
+        "tasks": dict(my_tasks),
+        "pipeline": {
+            **dict(my_pipeline),
+            "by_stage": my_pipeline_by_stage,
+        },
+        "follow_ups": dict(my_followups),
+        "quotations": dict(my_quotations),
+        "recent_activity": recent_activity,
+        "notifications": {"unread": my_notifications.get("unread", 0)},
     }

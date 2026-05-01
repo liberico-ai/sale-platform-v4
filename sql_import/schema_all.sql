@@ -201,10 +201,20 @@ CREATE TABLE IF NOT EXISTS sale_follow_up_schedules (
     last_follow_up  TEXT,
     follow_up_count INTEGER DEFAULT 0,
     is_active       INTEGER DEFAULT 1,
-    created_at      TEXT DEFAULT (datetime('now'))
+    customer_id     TEXT REFERENCES sale_customers(id),
+    contact_id      TEXT REFERENCES sale_customer_contacts(id),
+    assigned_to     TEXT,
+    status          TEXT DEFAULT 'PENDING',     -- PENDING | DONE | CANCELLED | RESCHEDULED
+    outcome         TEXT,
+    notes           TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sfu_next ON sale_follow_up_schedules(next_follow_up);
 CREATE INDEX IF NOT EXISTS idx_sfu_opp ON sale_follow_up_schedules(opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_sfu_status ON sale_follow_up_schedules(status);
+CREATE INDEX IF NOT EXISTS idx_sfu_assigned ON sale_follow_up_schedules(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_sfu_customer ON sale_follow_up_schedules(customer_id);
 
 
 -- ── TABLE 8: sale_email_templates ──
@@ -369,6 +379,28 @@ CREATE TABLE IF NOT EXISTS sale_audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON sale_audit_log(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON sale_audit_log(created_at);
+
+
+-- ── TABLE 16b: sale_notifications ──
+-- In-app notification feed: SLA / stale-deal / followup / quotation alerts
+-- Written by workers (sla_worker, stale_worker, followup_worker) and read by API.
+CREATE TABLE IF NOT EXISTS sale_notifications (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT,                        -- assignee email or user_name; NULL = broadcast
+    type            TEXT NOT NULL,               -- SLA_OVERDUE, STALE_DEAL, FOLLOWUP_DUE, QUOTATION_EXPIRING
+    title           TEXT NOT NULL,
+    message         TEXT,
+    entity_type     TEXT,                        -- task | opportunity | follow_up | quotation
+    entity_id       TEXT,
+    is_read         INTEGER DEFAULT 0,
+    severity        TEXT DEFAULT 'INFO',         -- INFO | WARN | CRIT
+    created_at      TEXT DEFAULT (datetime('now')),
+    read_at         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON sale_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notif_unread ON sale_notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_notif_type ON sale_notifications(type);
+CREATE INDEX IF NOT EXISTS idx_notif_created ON sale_notifications(created_at);
 
 
 -- ═══════════════════════════════════════════════════════════════

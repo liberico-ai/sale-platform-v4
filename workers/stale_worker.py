@@ -13,8 +13,10 @@ import structlog
 
 try:
     from ..database import query, execute
+    from ..services.notify import write_notification
 except ImportError:
     from database import query, execute
+    from services.notify import write_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -114,6 +116,21 @@ def detect_stale_deals():
 
             logger.info("followup_task_created",
                          task_id=task_id, opp_id=opp_id)
+
+            # Notification for the deal owner
+            write_notification(
+                notification_type="STALE_DEAL",
+                title=f"Stale deal: {opp.get('project_name', 'Unknown')}",
+                message=(
+                    f"No activity in {days_inactive} days "
+                    f"({opp.get('customer_name')}, ${value:,.0f} USD, "
+                    f"stage={opp.get('stage')})."
+                ),
+                user_id=opp.get("assigned_to"),
+                entity_type="opportunity",
+                entity_id=opp_id,
+                severity="WARN",
+            )
 
         logger.info("stale_detection_complete",
                      flagged=len(stale_opps))

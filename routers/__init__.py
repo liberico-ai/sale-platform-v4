@@ -18,6 +18,10 @@ from . import intelligence
 from . import contacts
 from . import quotations
 from . import interactions
+from . import follow_ups
+from . import files
+from . import notifications
+from . import search
 
 __all__ = [
     "health",
@@ -35,4 +39,8 @@ __all__ = [
     "contacts",
     "quotations",
     "interactions",
+    "follow_ups",
+    "files",
+    "notifications",
+    "search",
 ]

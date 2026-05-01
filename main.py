@@ -24,6 +24,7 @@ try:
         dashboard, mailboxes, users, pm_integration,
         contracts, intelligence,
         contacts, quotations, interactions,
+        follow_ups, files, notifications, search,
     )
 except ImportError:
     import config
@@ -35,6 +36,7 @@ except ImportError:
         dashboard, mailboxes, users, pm_integration,
         contracts, intelligence,
         contacts, quotations, interactions,
+        follow_ups, files, notifications, search,
     )
 
 # Initialize scheduler (placeholder for now)
@@ -67,10 +69,12 @@ async def lifespan(app: FastAPI):
             from .workers.gmail_worker import sync_gmail
             from .workers.sla_worker import check_sla
             from .workers.stale_worker import detect_stale_deals
+            from .workers.followup_worker import check_followups
         except ImportError:
             from workers.gmail_worker import sync_gmail
             from workers.sla_worker import check_sla
             from workers.stale_worker import detect_stale_deals
+            from workers.followup_worker import check_followups
 
         # Gmail sync — every 5 minutes (if email sync enabled)
         if config.ENABLE_EMAIL_SYNC:
@@ -96,6 +100,14 @@ async def lifespan(app: FastAPI):
             max_instances=1, replace_existing=True,
         )
         logger.info("worker_registered", worker="stale_detection", schedule="daily_08:00")
+
+        # Follow-up reminders — daily at 7:00 AM
+        scheduler.add_job(
+            check_followups, "cron", hour=7, minute=0,
+            id="followup_check", name="Follow-up Reminders",
+            max_instances=1, replace_existing=True,
+        )
+        logger.info("worker_registered", worker="followup_check", schedule="daily_07:00")
 
         scheduler.start()
         logger.info("scheduler_started", job_count=len(scheduler.get_jobs()))
@@ -172,6 +184,10 @@ app.include_router(intelligence.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(contacts.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(quotations.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(interactions.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(follow_ups.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(files.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(notifications.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(search.router, prefix="/api/v1", dependencies=auth_dep)
 
 # Write-access endpoints (ADMIN or MANAGER key)
 app.include_router(mailboxes.router, prefix="/api/v1", dependencies=write_dep)
