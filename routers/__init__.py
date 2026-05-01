@@ -26,6 +26,7 @@ from . import inter_dept
 from . import commissions
 from . import reports
 from . import templates
+from . import io_router
 
 __all__ = [
     "health",
@@ -51,4 +52,5 @@ __all__ = [
     "commissions",
     "reports",
     "templates",
+    "io_router",
 ]

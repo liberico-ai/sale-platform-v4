@@ -9,12 +9,16 @@ from pydantic import BaseModel
 from datetime import datetime
 import uuid
 
+import structlog
+
 try:
     from ..database import query, execute
     from ..auth import require_write
 except ImportError:
     from database import query, execute
     from auth import require_write
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
@@ -379,6 +383,191 @@ async def list_follow_ups(limit: int = Query(50, ge=1, le=200)):
         [limit],
     )
     return {"items": items, "count": len(items)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Email compose — DRAFT-only (CLAUDE.md rule #8)
+# ═══════════════════════════════════════════════════════════════
+
+class EmailDraftCompose(BaseModel):
+    """Compose a new outbound email — STORED AS DRAFT, never sent.
+
+    Either supply `template_type` to render from sale_email_templates with
+    `variables`, or supply `subject` + `body` directly.
+    """
+    to_address: str
+    customer_id: Optional[str] = None
+    opportunity_id: Optional[str] = None
+    contact_id: Optional[str] = None
+    cc: Optional[str] = None
+    template_type: Optional[str] = None
+    variables: Optional[dict] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    mailbox_id: Optional[str] = None
+    composed_by: Optional[str] = None
+
+
+def _render_template(subject: str, body: str, variables: dict) -> tuple:
+    """Mustache-lite renderer — replaces {{key}} occurrences in subject + body."""
+    rendered_subject = subject or ""
+    rendered_body = body or ""
+    for k, v in (variables or {}).items():
+        token = "{{" + str(k) + "}}"
+        rendered_subject = rendered_subject.replace(token, str(v))
+        rendered_body = rendered_body.replace(token, str(v))
+    return rendered_subject, rendered_body
+
+
+@router.post("/compose", dependencies=[Depends(require_write)])
+async def compose_email_draft(payload: EmailDraftCompose):
+    """Compose an outbound email and STORE AS DRAFT.
+
+    Per CLAUDE.md rule #8: Sale Platform NEVER auto-sends customer email.
+    The frontend collects review + approval before any send action.
+
+    Behavior:
+    - If template_type is set, look up the template and render
+      {{var}} placeholders from `variables`.
+    - Otherwise use the supplied subject/body directly.
+    - Insert into sale_emails with email_type=DRAFT, is_actioned=0,
+      and an activity log entry.
+    """
+    subject = payload.subject
+    body = payload.body
+    template_used = None
+
+    if payload.template_type:
+        tpl = query(
+            "SELECT subject, body FROM sale_email_templates "
+            "WHERE template_type = ? AND is_active = 1",
+            [payload.template_type],
+            one=True,
+        )
+        if not tpl:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Email template not found: {payload.template_type}",
+            )
+        subject, body = _render_template(
+            tpl.get("subject") or "", tpl.get("body") or "",
+            payload.variables or {},
+        )
+        template_used = payload.template_type
+
+    if not subject or not body:
+        raise HTTPException(
+            status_code=400,
+            detail="Need subject + body (or template_type that resolves to them)",
+        )
+
+    email_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_emails
+            (id, mailbox_id, email_type, from_address, to_addresses, cc_addresses,
+             subject, body_text, snippet,
+             customer_id, opportunity_id,
+             received_at, processed_at, is_read, is_actioned,
+             created_at)
+        VALUES (?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)
+        """,
+        [
+            email_id, payload.mailbox_id, "(draft)",
+            payload.to_address, payload.cc,
+            subject, body, body[:200] if body else None,
+            payload.customer_id, payload.opportunity_id,
+            now, now, now,
+        ],
+    )
+
+    execute(
+        """
+        INSERT INTO sale_email_activity_log
+            (id, email_id, opportunity_id, action_type, action_by, details, created_at)
+        VALUES (?, ?, ?, 'REPLY_DRAFTED', ?, ?, ?)
+        """,
+        [
+            str(uuid.uuid4()), email_id, payload.opportunity_id,
+            payload.composed_by,
+            f"Composed via /emails/compose; template={template_used}",
+            now,
+        ],
+    )
+
+    logger.info(
+        "email_draft_composed",
+        email_id=email_id,
+        to=payload.to_address,
+        template=template_used,
+    )
+
+    return {
+        "id": email_id,
+        "status": "DRAFT",
+        "template_used": template_used,
+        "subject": subject,
+        "preview": (body or "")[:200],
+        "warning": "Draft only — Sale Platform never auto-sends to customers",
+    }
+
+
+@router.post("/{email_id}/render-reply", dependencies=[Depends(require_write)])
+async def render_reply_draft(
+    email_id: str,
+    template_type: str = Query(..., description="Email template type"),
+):
+    """Render a reply DRAFT for an existing email using a template.
+
+    Auto-fills template variables from the source email + linked customer
+    + linked opportunity. Returns the rendered draft without persisting.
+    """
+    src = query(
+        """
+        SELECT e.*, c.name AS customer_name, o.project_name
+        FROM sale_emails e
+        LEFT JOIN sale_customers c ON c.id = e.customer_id
+        LEFT JOIN sale_opportunities o ON o.id = e.opportunity_id
+        WHERE e.id = ?
+        """,
+        [email_id], one=True,
+    )
+    if not src:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    tpl = query(
+        "SELECT subject, body, variables FROM sale_email_templates "
+        "WHERE template_type = ? AND is_active = 1",
+        [template_type], one=True,
+    )
+    if not tpl:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Email template not found: {template_type}",
+        )
+
+    auto_vars = {
+        "project_name": src.get("project_name") or "(no project)",
+        "customer_name": src.get("customer_name") or "",
+        "contact_name": src.get("from_name") or "Sir/Madam",
+        "subject": src.get("subject") or "",
+        "today": datetime.now().strftime("%Y-%m-%d"),
+        "sender_name": "IBS HI Sale Team",
+    }
+    rendered_subject, rendered_body = _render_template(
+        tpl.get("subject") or "", tpl.get("body") or "", auto_vars,
+    )
+
+    return {
+        "to_address": src.get("from_address"),
+        "subject": rendered_subject,
+        "body": rendered_body,
+        "auto_vars": auto_vars,
+        "template_type": template_type,
+        "warning": "Render only — call /emails/compose to persist as DRAFT",
+    }
 
 
 @router.get("/views/project-activity")

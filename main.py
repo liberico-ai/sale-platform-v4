@@ -26,6 +26,7 @@ try:
         contacts, quotations, interactions,
         follow_ups, files, notifications, search,
         inter_dept, commissions, reports, templates,
+        io_router,
     )
 except ImportError:
     import config
@@ -39,6 +40,7 @@ except ImportError:
         contacts, quotations, interactions,
         follow_ups, files, notifications, search,
         inter_dept, commissions, reports, templates,
+        io_router,
     )
 
 # Initialize scheduler (placeholder for now)
@@ -194,6 +196,7 @@ app.include_router(inter_dept.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(commissions.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(reports.router, prefix="/api/v1", dependencies=auth_dep)
 app.include_router(templates.router, prefix="/api/v1", dependencies=auth_dep)
+app.include_router(io_router.router, prefix="/api/v1", dependencies=auth_dep)
 
 # Write-access endpoints (ADMIN or MANAGER key)
 app.include_router(mailboxes.router, prefix="/api/v1", dependencies=write_dep)
