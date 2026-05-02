@@ -43,9 +43,13 @@ async def get_current_user(x_api_key: Optional[str] = Header(None)):
     if not tier:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
+    # Per-key label (set via *_API_KEYS_LIST env). Defaults to the slot
+    # label when not explicitly set.
+    label = config.API_KEY_LABELS.get(x_api_key, "")
+
     # Best-effort profile match — the API-key → user mapping is loose
-    # today (one shared key per tier). Pick the first active user whose
-    # role matches the tier so the frontend has *something* to show.
+    # today. Pick the first active user whose role matches the tier so
+    # the frontend has something to show when no per-key user record exists.
     role_filter = "ADMIN" if tier == "ADMIN" else (
         "MANAGER" if tier == "MANAGER" else "MEMBER"
     )
@@ -63,6 +67,16 @@ async def get_current_user(x_api_key: Optional[str] = Header(None)):
 
     return {
         "tier": tier,
+        "label": label,
         "is_dev_key": x_api_key == "dev-key-local-only",
+        "is_dev_env": config.IS_DEV_ENV,
         "profile": dict(profile) if profile else None,
     }
+
+
+@router.get("/info")
+async def public_info():
+    """Public (no-auth) flag the SPA uses to decide whether to show the
+    'dev fallback key' hint. No tier-specific or sensitive data here.
+    """
+    return {"is_dev_env": config.IS_DEV_ENV}

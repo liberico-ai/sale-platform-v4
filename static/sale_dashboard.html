@@ -171,7 +171,7 @@
     </div>
     <button class="primary" style="width:100%" onclick="doLogin()">Sign in</button>
     <div class="err" id="login-err"></div>
-    <p class="muted" style="margin-top:24px;font-size:11px">
+    <p id="dev-hint" class="muted" style="margin-top:24px;font-size:11px;display:none">
       Dev fallback key: <code>dev-key-local-only</code> (only works when SALE_ENV=development).
     </p>
   </div>
@@ -294,6 +294,15 @@ function doLogout() {
 }
 
 async function tryAutoLogin() {
+  // Public /auth/info — flips the dev-key hint on/off based on SALE_ENV
+  try {
+    const info = await fetch(API_BASE + '/auth/info').then(r => r.json());
+    if (info.is_dev_env) {
+      const hint = document.getElementById('dev-hint');
+      if (hint) hint.style.display = '';
+    }
+  } catch {}
+
   if (!API_KEY) { showLogin(); return; }
   try {
     CURRENT_USER = await api('/auth/me');
@@ -310,8 +319,12 @@ function bootApp() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'grid';
   const profile = CURRENT_USER.profile || {};
-  document.getElementById('user-label').textContent =
-    profile.user_name || profile.email || '(no profile)';
+  // Per-key label takes priority — surfaces "Tester Alice" etc when set
+  const display = CURRENT_USER.label
+    || profile.user_name
+    || profile.email
+    || '(no profile)';
+  document.getElementById('user-label').textContent = display;
   document.getElementById('tier-label').textContent = CURRENT_USER.tier;
   refreshNotificationBell();
   setInterval(refreshNotificationBell, 60000);

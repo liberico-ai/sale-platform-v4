@@ -25,6 +25,16 @@ PG_DSN = os.getenv(
 
 # API Keys Configuration (3-tier system)
 # IMPORTANT: Set via environment variables. Do NOT use defaults in production.
+#
+# Two ways to configure keys:
+# 1. Numbered slots (legacy): {TIER}_API_KEY_1, {TIER}_API_KEY_2
+# 2. Bulk list (recommended for many testers):
+#    {TIER}_API_KEYS_LIST="key1:Alice,key2:Bob,key3:Charlie"
+#    Each entry is "uuid:label". Labels surface in /auth/me + audit log.
+#
+# Both can coexist — numbered slots get a generic label, list entries
+# get the explicit label.
+
 _admin_key_1 = os.getenv("ADMIN_API_KEY_1", "")
 _admin_key_2 = os.getenv("ADMIN_API_KEY_2", "")
 _manager_key_1 = os.getenv("MANAGER_API_KEY_1", "")
@@ -33,22 +43,54 @@ _viewer_key_1 = os.getenv("VIEWER_API_KEY_1", "")
 _viewer_key_2 = os.getenv("VIEWER_API_KEY_2", "")
 
 API_KEYS: Dict[str, str] = {}
-if _admin_key_1:
-    API_KEYS[_admin_key_1] = "ADMIN"
-if _admin_key_2:
-    API_KEYS[_admin_key_2] = "ADMIN"
-if _manager_key_1:
-    API_KEYS[_manager_key_1] = "MANAGER"
-if _manager_key_2:
-    API_KEYS[_manager_key_2] = "MANAGER"
-if _viewer_key_1:
-    API_KEYS[_viewer_key_1] = "VIEWER"
-if _viewer_key_2:
-    API_KEYS[_viewer_key_2] = "VIEWER"
+API_KEY_LABELS: Dict[str, str] = {}
+
+
+def _add_key(key: str, tier: str, label: str = "") -> None:
+    """Register one key in both API_KEYS (key→tier) and API_KEY_LABELS (key→label)."""
+    if not key:
+        return
+    API_KEYS[key] = tier
+    API_KEY_LABELS[key] = label or f"{tier} (slot)"
+
+
+def _parse_keys_list(env_value: str, tier: str) -> None:
+    """Parse '{TIER}_API_KEYS_LIST' env value: comma-separated 'key:label' entries.
+
+    A bare 'key' (no colon) gets the default '<tier> (unlabeled)' label.
+    Whitespace around tokens is stripped.
+    """
+    if not env_value:
+        return
+    for entry in env_value.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" in entry:
+            key, _, label = entry.partition(":")
+            _add_key(key.strip(), tier, label.strip())
+        else:
+            _add_key(entry, tier, f"{tier} (unlabeled)")
+
+
+# Numbered slots
+_add_key(_admin_key_1, "ADMIN", "ADMIN slot 1")
+_add_key(_admin_key_2, "ADMIN", "ADMIN slot 2")
+_add_key(_manager_key_1, "MANAGER", "MANAGER slot 1")
+_add_key(_manager_key_2, "MANAGER", "MANAGER slot 2")
+_add_key(_viewer_key_1, "VIEWER", "VIEWER slot 1")
+_add_key(_viewer_key_2, "VIEWER", "VIEWER slot 2")
+
+# Bulk lists (recommended for testers)
+_parse_keys_list(os.getenv("ADMIN_API_KEYS_LIST", ""), "ADMIN")
+_parse_keys_list(os.getenv("MANAGER_API_KEYS_LIST", ""), "MANAGER")
+_parse_keys_list(os.getenv("VIEWER_API_KEYS_LIST", ""), "VIEWER")
 
 # Dev mode: if no keys configured, allow a dev key
-if not API_KEYS and os.getenv("SALE_ENV", "development") == "development":
-    API_KEYS["dev-key-local-only"] = "ADMIN"
+SALE_ENV = os.getenv("SALE_ENV", "development")
+IS_DEV_ENV = SALE_ENV == "development"
+if not API_KEYS and IS_DEV_ENV:
+    _add_key("dev-key-local-only", "ADMIN", "Dev fallback (local only)")
 
 # IBS HI Layer 1 Integration
 IBSHI1_URL = os.getenv("IBSHI1_URL", "http://localhost:3000")
