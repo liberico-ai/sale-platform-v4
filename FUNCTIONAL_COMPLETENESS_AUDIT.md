@@ -1,97 +1,120 @@
 # SALE PLATFORM — FUNCTIONAL COMPLETENESS AUDIT
 
-> **Date:** 30/04/2026
+> **Date:** 30/04/2026 | **Updated:** 03/05/2026 (GitHub audit correction)
 > **Mục đích:** Đánh giá đầy đủ chức năng để team Sale (3-5 người) có thể dùng Platform
-> **Đã đọc:** CLAUDE.md v5.1, TEAM_RULES v2.0, Sale Platform CLAUDE.md, ADR-001, schema_all.sql, toàn bộ 14 routers + 13 models
+> **Đã đọc:** CLAUDE.md v5.1, TEAM_RULES v2.0, Sale Platform CLAUDE.md, ADR-001, schema_all.sql
 > **Input từ Chairman:** Quotation = Sale tự gửi, Notification = In-app badge, Users = 3-5 người, Documents = Link NAS
 
 ---
 
-## 1. HIỆN TRẠNG CODE
+## ⚠️ ĐÍNH CHÍNH 03/05/2026
 
-### 1.1 Inventory
-- **14 routers**, **63 endpoints** (39 GET, 14 POST, 10 PATCH, 0 DELETE)
-- **13 model files** (Pydantic)
-- **4 services** (classifier, state_machine, audit, sla_engine, gmail_service, khkd_tracker, pm_bridge)
-- **4 workers** (gmail, sla, stale, pm_sync)
-- **32 tables** + 2 views trong DB, ~6,700 records
+> **Audit ban đầu dựa trên GDrive code (cũ). GitHub repo đã implement nhiều tính năng hơn.**
+> Xem **CROSS_CUTTING_DESIGN.md** để biết hiện trạng THỰC TẾ từ GitHub.
+> Xem **UNIFIED_CLAUDE_CODE_COMMAND.md** để có lệnh hợp nhất duy nhất cho Claude Code.
 
-### 1.2 BÁO ĐỘNG: Auth gần như KHÔNG CÓ
+| Metric | Audit ban đầu (GDrive) | Thực tế (GitHub) |
+|--------|------------------------|-------------------|
+| Routers | 14 | **25** |
+| Endpoints | ~63 | **~90+** |
+| Auth | 4/63 (6%) | **100% qua main.py dependencies** |
+| Frontend | 0 | **6 HTML pages** |
+| Tests | 0 | **10 flows, 22 functions** |
+| Docker | 0 | **Dockerfile + CI/CD** |
+| Workers | 4 | **5** (+followup) |
+| Services | 4 | **8** (+notify, +pm_bridge) |
 
-| Nhóm endpoints | Tổng | Có Auth | Không Auth |
-|----------------|------|---------|------------|
-| Customers (7) | 7 | 0 | **7** |
-| Contacts (4) | 4 | 2 | 2 |
-| Contracts (10) | 10 | 0 | **10** |
-| Quotations (5) | 5 | 0 | **5** |
-| Interactions (4) | 4 | 2 | 2 |
-| Intelligence (5) | 5 | 0 | **5** |
-| Emails (9) | 9 | 0 | **9** |
-| Opportunities (5) | 5 | 0 | **5** |
-| Tasks (6) | 6 | 0 | **6** |
-| Dashboard (7) | 7 | 0 | **7** |
-| Users (3) | 3 | 0 | **3** |
-| Mailboxes (4) | 4 | 0 | **4** |
-| PM Integration (6) | 6 | 0 | **6** |
-| Health (1) | 1 | 0 | 1 (public OK) |
-| **TỔNG** | **63** | **4 (6%)** | **59 (94%)** |
+**Đã có trên GitHub (KHÔNG CẦN tạo mới):** auth_router, follow_ups, files, notifications, search, inter_dept, commissions, reports, templates, io_router, contacts, quotations, contracts, interactions, intelligence
 
-**Kết luận:** Auth middleware tồn tại trong auth.py (X-API-Key 3 tiers) nhưng hầu như KHÔNG ĐƯỢC SỬ DỤNG. Bất kỳ ai biết URL đều có thể đọc toàn bộ data khách hàng, pipeline, và TẠO/SỬA opportunities, tasks, users mà không cần key.
+**CÒN THIẾU thật sự (cần bổ sung):** per-user identity (CC-1), exception handler (CC-3), enum validation (CC-7), frontend field alignment (CC-4), async DB wrappers (CC-2), thread-safe pool (CC-9) — xem CROSS_CUTTING_DESIGN.md
 
 ---
 
-## 2. GAP ANALYSIS — CHỨC NĂNG TIÊU CHUẨN CRM
+## 1. HIỆN TRẠNG CODE (ban đầu — xem đính chính ở trên)
+
+### 1.1 Inventory (GDrive — OUTDATED)
+- ~~**14 routers**, **63 endpoints**~~ → GitHub: **25 routers, 90+ endpoints**
+- **13 model files** (Pydantic) — nhưng routers KHÔNG import từ models/ (CC-6)
+- ~~**4 services**~~ → GitHub: **8 services** (+ notify.py, pm_bridge.py)
+- ~~**4 workers**~~ → GitHub: **5 workers** (+ followup_worker.py)
+- **32 tables** + 2 views trong DB, ~6,700 records
+
+### 1.2 ~~BÁO ĐỘNG: Auth gần như KHÔNG CÓ~~ → ĐÃ FIX trên GitHub
+
+**GitHub main.py áp dụng auth ở router REGISTRATION level:**
+```python
+auth_dep = [Depends(require_auth)]    # 19 routers
+write_dep = [Depends(require_write)]  # 2 routers (mailboxes, users)
+admin_dep = [Depends(require_admin)]  # 1 router (io_router)
+```
+
+**Vấn đề CÒN LẠI:** Auth chỉ biết tier (ADMIN/MANAGER/VIEWER), KHÔNG biết user identity → audit trail trống. Xem CC-1 trong CROSS_CUTTING_DESIGN.md.
+
+---
+
+## 2. GAP ANALYSIS — CHỨC NĂNG TIÊU CHUẨN CRM (cập nhật 03/05/2026)
 
 ### NHÓM A: CRITICAL — Không có thì không dùng được
 
-| # | Chức năng | Hiện trạng | Thiếu gì | Effort |
-|---|-----------|------------|----------|--------|
-| A1 | **Auth trên TẤT CẢ endpoints** | 4/63 có auth | Thêm Depends(require_auth) cho GET, Depends(require_write) cho POST/PATCH | 2h |
-| A2 | **Login page** | Không có | Tạo login UI → nhập API key hoặc email/pass → lưu session | 4h |
-| A3 | **POST /customers** (tạo KH mới) | Không có | CRUD đầy đủ cho customers | 2h |
-| A4 | **PATCH /customers/{id}** (sửa KH) | Không có | Update customer fields | 1h |
-| A5 | **POST /quotations** (tạo báo giá) | Không có — chỉ READ historical | Create quotation workflow: Draft → Sent → Won/Lost | 4h |
-| A6 | **PATCH /quotations/{id}** (cập nhật status) | Không có | Update status, revision tracking | 2h |
-| A7 | **POST /contracts** (tạo hợp đồng) | Không có | Tạo từ Won quotation hoặc manual | 3h |
-| A8 | **PATCH /contracts/{id}** | Không có | Update contract status, milestones | 2h |
-| A9 | **Frontend (sale_dashboard.html)** | Không có | Standalone HTML, dark theme, fetch từ :8767 API | 16h |
-| A10 | **GET /auth/me** | Không có | Trả user info dựa trên API key | 1h |
+| # | Chức năng | GitHub Status | Còn thiếu gì | Effort |
+|---|-----------|---------------|---------------|--------|
+| A1 | **Auth trên TẤT CẢ endpoints** | ✅ ĐÃ CÓ (main.py dependencies) | Per-user identity (CC-1) | 4h |
+| A2 | **Login page** | ⚠️ index.html có nhưng field names sai | Fix field alignment (CC-4) | 3h |
+| A3 | **POST /customers** (tạo KH mới) | ✅ ĐÃ CÓ (routers/customers.py) | Verify body validation | 0h |
+| A4 | **PATCH /customers/{id}** (sửa KH) | ✅ ĐÃ CÓ | — | 0h |
+| A5 | **POST /quotations** (tạo báo giá) | ✅ ĐÃ CÓ (routers/quotations.py) | Verify state machine | 0h |
+| A6 | **PATCH /quotations/{id}** | ✅ ĐÃ CÓ | — | 0h |
+| A7 | **POST /contracts** (tạo hợp đồng) | ✅ ĐÃ CÓ (routers/contracts.py) | — | 0h |
+| A8 | **PATCH /contracts/{id}** | ✅ ĐÃ CÓ | — | 0h |
+| A9 | **Frontend** | ⚠️ 6 HTML pages nhưng field names sai vs API | Fix CC-4 | (incl. in CC-4) |
+| A10 | **GET /auth/me** | ✅ ĐÃ CÓ (routers/auth_router.py) | — | 0h |
 
-**Subtotal CRITICAL: ~37h effort**
+**Subtotal CRITICAL: ~~37h~~ → 7h (chỉ CC-1 + CC-4)**
 
 ### NHÓM B: HIGH — Standard CRM mà không có thì thiếu chuyên nghiệp
 
-| # | Chức năng | Hiện trạng | Thiếu gì | Effort |
-|---|-----------|------------|----------|--------|
-| B1 | **Follow-up scheduling** | Table sale_follow_up_schedules tồn tại, 0 records, KHÔNG CÓ router | CRUD + auto-remind logic | 4h |
-| B2 | **NAS file links** | Table sale_nas_file_links có 1,112 records, KHÔNG CÓ router | GET (filter by customer/opp/project), POST link mới | 3h |
-| B3 | **Global search** | Chỉ có GET /customers/search | Search across customers + contacts + opportunities + quotations + emails | 4h |
-| B4 | **My Dashboard** (personal view) | Dashboard chỉ có company-wide | GET /dashboard/my?user=xxx → my tasks, my pipeline, my customers, my follow-ups | 4h |
-| B5 | **Activity timeline per customer** | GET /customers/{id} trả detail nhưng không có timeline | Unified timeline: interactions + emails + quotations + contracts sorted by date | 3h |
-| B6 | **In-app notification badges** | SLA worker + stale worker tồn tại nhưng KHÔNG ghi notification | Tạo sale_notifications table + router + badge count endpoint | 4h |
-| B7 | **Report export** | Dashboard trả JSON, không export | GET /reports/pipeline?format=xlsx hoặc PDF export | 6h |
-| B8 | **Seed data: default users** | sale_user_roles có thể trống | POST /users/seed-defaults: tạo 3-5 users mặc định cho team | 1h |
-| B9 | **Seed data: email templates** | sale_email_templates có thể trống | Seed 10 templates (RFQ reply, follow-up, thank you, etc.) | 2h |
-| B10 | **Quote templates** | Table sale_quote_templates tồn tại, KHÔNG CÓ router | CRUD cho quote templates (dùng khi tạo quotation) | 3h |
+| # | Chức năng | GitHub Status | Còn thiếu gì | Effort |
+|---|-----------|---------------|---------------|--------|
+| B1 | **Follow-up scheduling** | ✅ ĐÃ CÓ (routers/follow_ups.py + workers/followup_worker.py) | — | 0h |
+| B2 | **NAS file links** | ✅ ĐÃ CÓ (routers/files.py) | — | 0h |
+| B3 | **Global search** | ✅ ĐÃ CÓ (routers/search.py) | — | 0h |
+| B4 | **My Dashboard** | ⚠️ Cần verify endpoint | Thêm nếu chưa có | 2h |
+| B5 | **Activity timeline per customer** | ❌ CHƯA CÓ | Unified timeline endpoint | 3h |
+| B6 | **In-app notification badges** | ✅ ĐÃ CÓ (routers/notifications.py + services/notify.py) | — | 0h |
+| B7 | **Report export** | ⚠️ routers/reports.py có nhưng chưa export file | XLSX/PDF export | 6h |
+| B8 | **Seed data: default users** | ⚠️ Cần verify | — | 0.5h |
+| B9 | **Seed data: email templates** | ✅ routers/templates.py có | — | 0h |
+| B10 | **Quote templates** | ✅ routers/templates.py có | — | 0h |
 
-**Subtotal HIGH: ~34h effort**
+**Subtotal HIGH: ~~34h~~ → ~11.5h (chỉ B4, B5, B7, B8)**
 
 ### NHÓM C: MEDIUM — Nên có, có thể Phase 2
 
-| # | Chức năng | Hiện trạng | Thiếu gì | Effort |
-|---|-----------|------------|----------|--------|
-| C1 | **Inter-dept tasks** | Table tồn tại, KHÔNG CÓ router | CRUD + workflow Sale → other dept | 4h |
-| C2 | **Report configs** | Table tồn tại, KHÔNG CÓ router | CRUD + scheduled report generation | 4h |
-| C3 | **Commission tracking** | Table tồn tại (trống), KHÔNG CÓ router | CRUD + auto-calc từ won deals | 4h |
-| C4 | **Email compose** | Chỉ có DRAFT via pm_integration | Compose email → DRAFT → review → send (via Gmail API) | 6h |
-| C5 | **Bulk import** | Không có (chỉ SQL import) | CSV/Excel upload → validate → import customers/contacts | 6h |
-| C6 | **Data export** | Không có | Export customers/pipeline/quotations to CSV/Excel | 4h |
-| C7 | **Duplicate detection** | Không có | Check trùng tên/email khi tạo customer/contact | 3h |
-| C8 | **Dashboard filters** | Dashboard endpoints có filter nhưng hạn chế | Date range, assigned_to, product_group filters trên mọi dashboard | 3h |
-| C9 | **Audit trail UI** | sale_audit_log table có data, không có endpoint riêng | GET /audit-log with filters | 2h |
-| C10 | **DELETE (soft delete)** | 0 DELETE endpoints | Soft delete (set status=DELETED) cho customer, contact, opportunity | 3h |
+| # | Chức năng | GitHub Status | Còn thiếu gì | Effort |
+|---|-----------|---------------|---------------|--------|
+| C1 | **Inter-dept tasks** | ✅ ĐÃ CÓ (routers/inter_dept.py) | — | 0h |
+| C2 | **Report configs** | ✅ ĐÃ CÓ (routers/reports.py) | — | 0h |
+| C3 | **Commission tracking** | ✅ ĐÃ CÓ (routers/commissions.py) | — | 0h |
+| C4 | **Email compose** | ⚠️ Qua pm_integration | Full compose flow | 6h |
+| C5 | **Bulk import** | ✅ ĐÃ CÓ (routers/io_router.py) | — | 0h |
+| C6 | **Data export** | ✅ ĐÃ CÓ (routers/io_router.py) | — | 0h |
+| C7 | **Duplicate detection** | ❌ CHƯA CÓ | Check khi tạo customer/contact | 3h |
+| C8 | **Dashboard filters** | ⚠️ Có nhưng hạn chế | Mở rộng filters | 3h |
+| C9 | **Audit trail UI** | ✅ ĐÃ CÓ (reports.py /audit-log) | — | 0h |
+| C10 | **DELETE (soft delete)** | ⚠️ Cần verify | Thêm nếu chưa có | 2h |
 
-**Subtotal MEDIUM: ~39h effort**
+**Subtotal MEDIUM: ~~39h~~ → ~14h (chỉ C4, C7, C8, C10)**
+
+### TỔNG HỢP SAU ĐÍNH CHÍNH
+
+| Nhóm | Effort ban đầu | Effort thực tế | Đã implement |
+|------|----------------|----------------|--------------|
+| A: CRITICAL | 37h | **7h** | 80% |
+| B: HIGH | 34h | **11.5h** | 66% |
+| C: MEDIUM | 39h | **14h** | 64% |
+| **TỔNG** | **110h** | **~32.5h** | **~70% done** |
+
+**Kết hợp Cross-cutting (~40h):** Tổng effort còn lại = ~72.5h. Xem UNIFIED_CLAUDE_CODE_COMMAND.md.
 
 ---
 
