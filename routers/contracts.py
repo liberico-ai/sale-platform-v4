@@ -16,11 +16,27 @@ import structlog
 try:
     from ..database import query, execute
     from ..auth import UserContext, get_current_writer
+    from ..errors import EntityNotFoundError
     from ..services.audit import log_status_change, log_financial_change
+    from ..services.state_machine import (
+        validate_contract_transition,
+        get_allowed_contract_transitions,
+        validate_settlement_transition,
+        get_allowed_settlement_transitions,
+        InvalidTransitionError,
+    )
 except ImportError:
     from database import query, execute
     from auth import UserContext, get_current_writer
+    from errors import EntityNotFoundError
     from services.audit import log_status_change, log_financial_change
+    from services.state_machine import (
+        validate_contract_transition,
+        get_allowed_contract_transitions,
+        validate_settlement_transition,
+        get_allowed_settlement_transitions,
+        InvalidTransitionError,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -125,9 +141,80 @@ class SettlementCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class SettlementUpdate(BaseModel):
+    """Update an existing settlement. status changes go through state machine."""
+    settlement_date: Optional[str] = None
+    settlement_status: Optional[str] = None
+    planned_value_usd: Optional[float] = None
+    planned_weight_ton: Optional[float] = None
+    planned_gm_pct: Optional[float] = None
+    planned_gm_value: Optional[float] = None
+    actual_revenue_usd: Optional[float] = None
+    actual_weight_ton: Optional[float] = None
+    actual_total_cost: Optional[float] = None
+    actual_gm_pct: Optional[float] = None
+    actual_gm_value: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class ChangeOrderCreate(BaseModel):
+    """New change order against an opportunity (sale_change_orders)."""
+    opportunity_id: str
+    change_type: str
+    title: str
+    description: Optional[str] = None
+    requested_by: Optional[str] = None
+    co_ref: Optional[str] = None
+    value_delta_usd: Optional[float] = None
+    weight_delta_ton: Optional[float] = None
+    schedule_delta_days: Optional[int] = None
+    status: Optional[str] = "PROPOSED"
+    notes: Optional[str] = None
+
+
+class ChangeOrderUpdate(BaseModel):
+    """Update a change order. status terminal: APPROVED / REJECTED."""
+    status: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    value_delta_usd: Optional[float] = None
+    weight_delta_ton: Optional[float] = None
+    schedule_delta_days: Optional[int] = None
+    approved_by: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class KhkdTargetCreate(BaseModel):
+    """Annual KHKD target row (sale_khkd_targets)."""
+    fiscal_year: str
+    total_revenue_target: Optional[float] = None
+    total_tons_target: Optional[float] = None
+    total_gm_pct_target: Optional[float] = None
+    total_gm_value_target: Optional[float] = None
+    total_po_target: Optional[int] = None
+    backlog_tons: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class KhkdTargetUpdate(BaseModel):
+    """Update an existing KHKD target row."""
+    total_revenue_target: Optional[float] = None
+    total_tons_target: Optional[float] = None
+    total_gm_pct_target: Optional[float] = None
+    total_gm_value_target: Optional[float] = None
+    total_po_target: Optional[int] = None
+    backlog_tons: Optional[float] = None
+    notes: Optional[str] = None
+
+
 _AUDITED_CONTRACT_FIELDS = {"contract_status"}
 _AUDITED_MILESTONE_FIELDS = {
     "invoice_status", "invoice_amount_usd", "payment_amount",
+}
+_AUDITED_SETTLEMENT_FIELDS = {
+    "settlement_status",
+    "planned_value_usd", "planned_gm_value",
+    "actual_revenue_usd", "actual_total_cost", "actual_gm_value",
 }
 
 
@@ -622,6 +709,18 @@ async def update_active_contract(
         "contract_status" in data
         and data["contract_status"] != existing.get("contract_status")
     ):
+        # State machine validation — reject illegal transitions before
+        # we touch the row.
+        try:
+            validate_contract_transition(
+                existing.get("contract_status") or "DRAFT",
+                data["contract_status"],
+            )
+        except InvalidTransitionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
         log_status_change(
             "active_contract", contract_id,
             existing.get("contract_status") or "",
@@ -863,3 +962,297 @@ async def create_settlement(
         "opportunity_id": opportunity_id,
         "status": "ok",
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Settlement updates (Phase 2 step 5)
+# ═══════════════════════════════════════════════════════════════
+
+@router.patch("/{contract_id}/settlements/{settlement_id}")
+async def update_settlement(
+    contract_id: str,
+    settlement_id: str,
+    payload: SettlementUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Update a settlement. status changes go through the state machine.
+
+    contract_id is informational — settlements key off opportunity_id;
+    the settlement_id is the unique identifier.
+    """
+    existing = query(
+        "SELECT * FROM sale_settlements WHERE id = ?",
+        [settlement_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("Settlement", settlement_id)
+
+    data = (
+        payload.model_dump(exclude_unset=True)
+        if hasattr(payload, "model_dump")
+        else payload.dict(exclude_unset=True)
+    )
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    new_status = data.get("settlement_status")
+    if new_status and new_status != existing.get("settlement_status"):
+        try:
+            validate_settlement_transition(
+                existing.get("settlement_status") or "OPEN",
+                new_status,
+            )
+        except InvalidTransitionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        log_status_change(
+            "settlement", settlement_id,
+            existing.get("settlement_status") or "", new_status,
+            changed_by=user.actor,
+        )
+
+    # Audit financial diffs
+    financial_diffs = {}
+    for field in _AUDITED_SETTLEMENT_FIELDS:
+        if (
+            field in data
+            and field != "settlement_status"
+            and data[field] != existing.get(field)
+        ):
+            financial_diffs[field] = (existing.get(field), data[field])
+    if financial_diffs:
+        log_financial_change(
+            "settlement", settlement_id, financial_diffs,
+            changed_by=user.actor,
+        )
+
+    now = datetime.now().isoformat()
+    sets = [f"{k} = ?" for k in data.keys()]
+    sets.append("updated_at = ?")
+    params = list(data.values()) + [now, settlement_id]
+
+    execute(
+        f"UPDATE sale_settlements SET {', '.join(sets)} WHERE id = ?",
+        params,
+    )
+    return {"id": settlement_id, "status": "ok",
+            "updated_fields": list(data.keys())}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Change orders (Phase 2 step 5) — sale_change_orders
+# ═══════════════════════════════════════════════════════════════
+
+def _next_change_order_number(opportunity_id: str) -> int:
+    row = query(
+        "SELECT COALESCE(MAX(change_order_number), 0) + 1 AS n "
+        "FROM sale_change_orders WHERE opportunity_id = ?",
+        [opportunity_id], one=True,
+    ) or {}
+    return int(row.get("n") or 1)
+
+
+@router.post("/change-orders")
+async def create_change_order(
+    payload: ChangeOrderCreate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create a change order against an opportunity.
+
+    change_order_number auto-increments per opportunity. Status defaults
+    to PROPOSED — see PATCH for transition rules.
+    """
+    opp = query(
+        "SELECT id FROM sale_opportunities WHERE id = ?",
+        [payload.opportunity_id], one=True,
+    )
+    if not opp:
+        raise EntityNotFoundError("Opportunity", payload.opportunity_id)
+
+    co_id = str(uuid.uuid4())
+    co_num = _next_change_order_number(payload.opportunity_id)
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_change_orders
+            (id, opportunity_id, change_order_number, co_ref, change_type,
+             title, description, requested_by, value_delta_usd,
+             weight_delta_ton, schedule_delta_days, status, notes,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            co_id, payload.opportunity_id, co_num, payload.co_ref,
+            payload.change_type, payload.title, payload.description,
+            payload.requested_by, payload.value_delta_usd,
+            payload.weight_delta_ton, payload.schedule_delta_days,
+            payload.status or "PROPOSED", payload.notes, now, now,
+        ],
+    )
+
+    logger.info(
+        "change_order_created",
+        co_id=co_id, opportunity_id=payload.opportunity_id, number=co_num,
+    )
+    return {
+        "id": co_id,
+        "opportunity_id": payload.opportunity_id,
+        "change_order_number": co_num,
+        "status": payload.status or "PROPOSED",
+    }
+
+
+@router.patch("/change-orders/{co_id}")
+async def update_change_order(
+    co_id: str,
+    payload: ChangeOrderUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Update a change order. Status flow: PROPOSED → APPROVED | REJECTED."""
+    existing = query(
+        "SELECT * FROM sale_change_orders WHERE id = ?",
+        [co_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("ChangeOrder", co_id)
+
+    data = (
+        payload.model_dump(exclude_unset=True)
+        if hasattr(payload, "model_dump")
+        else payload.dict(exclude_unset=True)
+    )
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Light state guard — change orders don't have a full state machine
+    # but PROPOSED is the only mutable state.
+    new_status = data.get("status")
+    if new_status and new_status != existing.get("status"):
+        if (existing.get("status") or "PROPOSED") not in ("PROPOSED",):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Cannot change status from {existing.get('status')} — "
+                    f"only PROPOSED change orders can be APPROVED/REJECTED"
+                ),
+            )
+        if new_status not in ("APPROVED", "REJECTED", "CANCELLED"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid change order status: {new_status}",
+            )
+        log_status_change(
+            "change_order", co_id,
+            existing.get("status") or "", new_status,
+            changed_by=user.actor,
+        )
+        if new_status == "APPROVED" and not data.get("approved_by"):
+            data["approved_by"] = user.actor
+
+    now = datetime.now().isoformat()
+    sets = [f"{k} = ?" for k in data.keys()]
+    sets.append("updated_at = ?")
+    params = list(data.values()) + [now, co_id]
+
+    execute(
+        f"UPDATE sale_change_orders SET {', '.join(sets)} WHERE id = ?",
+        params,
+    )
+    return {"id": co_id, "status": "ok", "updated_fields": list(data.keys())}
+
+
+# ═══════════════════════════════════════════════════════════════
+# KHKD targets (Phase 2 step 5) — sale_khkd_targets
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/khkd-targets")
+async def create_khkd_target(
+    payload: KhkdTargetCreate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create a KHKD target row for a fiscal year.
+
+    fiscal_year is enforced unique — duplicate years return 409 instead
+    of silently overwriting.
+    """
+    existing = query(
+        "SELECT id FROM sale_khkd_targets WHERE fiscal_year = ?",
+        [payload.fiscal_year], one=True,
+    )
+    if existing:
+        from fastapi import HTTPException as _H
+        raise _H(
+            status_code=409,
+            detail=f"KHKD target already exists for FY {payload.fiscal_year}",
+        )
+
+    target_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_khkd_targets
+            (id, fiscal_year, total_revenue_target, total_tons_target,
+             total_gm_pct_target, total_gm_value_target, total_po_target,
+             backlog_tons, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            target_id, payload.fiscal_year,
+            payload.total_revenue_target, payload.total_tons_target,
+            payload.total_gm_pct_target, payload.total_gm_value_target,
+            payload.total_po_target, payload.backlog_tons, payload.notes,
+            now, now,
+        ],
+    )
+
+    logger.info("khkd_target_created", id=target_id, fy=payload.fiscal_year)
+    return {"id": target_id, "fiscal_year": payload.fiscal_year, "status": "ok"}
+
+
+@router.patch("/khkd-targets/{target_id}")
+async def update_khkd_target(
+    target_id: str,
+    payload: KhkdTargetUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Update a KHKD target row. Audit-logs financial field changes."""
+    existing = query(
+        "SELECT * FROM sale_khkd_targets WHERE id = ?",
+        [target_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("KhkdTarget", target_id)
+
+    data = (
+        payload.model_dump(exclude_unset=True)
+        if hasattr(payload, "model_dump")
+        else payload.dict(exclude_unset=True)
+    )
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # All KHKD fields are financial — audit every diff.
+    diffs = {
+        k: (existing.get(k), v)
+        for k, v in data.items()
+        if k != "notes" and v != existing.get(k)
+    }
+    if diffs:
+        log_financial_change(
+            "khkd_target", target_id, diffs,
+            changed_by=user.actor,
+        )
+
+    now = datetime.now().isoformat()
+    sets = [f"{k} = ?" for k in data.keys()]
+    sets.append("updated_at = ?")
+    params = list(data.values()) + [now, target_id]
+
+    execute(
+        f"UPDATE sale_khkd_targets SET {', '.join(sets)} WHERE id = ?",
+        params,
+    )
+    return {"id": target_id, "status": "ok", "updated_fields": list(data.keys())}

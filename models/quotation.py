@@ -30,11 +30,16 @@ class QuotationBase(BaseModel):
 
 
 class QuotationCreate(QuotationBase):
-    """New quotation. Required: project_name + (customer_id|customer_code|customer_name)."""
+    """New quotation. Required: project_name + (customer_id|customer_code|customer_name).
+
+    ``opportunity_id`` links the quote to an opportunity so WIN/LOSS on
+    the quote can fan out to the opportunity (Phase 2 step 4).
+    """
 
     project_name: str
     customer_id: Optional[str] = None
     customer_code: Optional[str] = None
+    opportunity_id: Optional[str] = None
     country: Optional[str] = None
     market: Optional[str] = None
     product_type: Optional[str] = None

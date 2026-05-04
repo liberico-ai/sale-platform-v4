@@ -19,10 +19,28 @@ import structlog
 
 try:
     from ..database import query, execute, now_expr, date_today_expr
-    from ..auth import require_write
+    from ..auth import (
+        UserContext, require_write, get_current_writer, get_current_admin,
+    )
+    from ..errors import EntityNotFoundError
+    from ..services.audit import log_status_change
+    from ..services.state_machine import (
+        validate_follow_up_transition,
+        get_allowed_follow_up_transitions,
+        InvalidTransitionError,
+    )
 except ImportError:
     from database import query, execute, now_expr, date_today_expr
-    from auth import require_write
+    from auth import (
+        UserContext, require_write, get_current_writer, get_current_admin,
+    )
+    from errors import EntityNotFoundError
+    from services.audit import log_status_change
+    from services.state_machine import (
+        validate_follow_up_transition,
+        get_allowed_follow_up_transitions,
+        InvalidTransitionError,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -30,7 +48,14 @@ router = APIRouter(prefix="/follow-ups", tags=["Follow-ups"])
 
 
 class FollowUpCreate(BaseModel):
-    """New follow-up. Required: opportunity_id, schedule_type, next_follow_up."""
+    """New follow-up.
+
+    ``opportunity_id`` is required because the underlying schema
+    enforces NOT NULL on it (sale_follow_up_schedules.opportunity_id
+    REFERENCES sale_opportunities). Customer-only follow-ups are a
+    Phase 3 item — they need a schema migration that SQLite ALTER
+    cannot express in a backward-compatible way.
+    """
     opportunity_id: str
     schedule_type: str               # CALL | EMAIL | VISIT | MEETING | REMINDER
     next_follow_up: str              # ISO date / datetime — when to act
@@ -147,18 +172,55 @@ async def list_overdue_followups(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_follow_up(payload: FollowUpCreate):
-    """Create a new follow-up. opportunity_id must point to an existing
-    opportunity (NOT NULL FK).
+@router.get("/{follow_up_id}")
+async def get_follow_up_detail(follow_up_id: str):
+    """Detailed view of a single follow-up (Phase 2 step 7).
+
+    Joins the linked opportunity, customer, and contact so the SPA's
+    detail drawer renders parent context in one round-trip.
     """
+    item = query(
+        """
+        SELECT f.*,
+               o.project_name AS opportunity_project,
+               o.stage AS opportunity_stage,
+               c.name AS customer_name,
+               c.code AS customer_code,
+               ct.name AS contact_name,
+               ct.email AS contact_email
+        FROM sale_follow_up_schedules f
+        LEFT JOIN sale_opportunities o ON o.id = f.opportunity_id
+        LEFT JOIN sale_customers c ON c.id = f.customer_id
+        LEFT JOIN sale_customer_contacts ct ON ct.id = f.contact_id
+        WHERE f.id = ?
+        """,
+        [follow_up_id], one=True,
+    )
+    if not item:
+        raise EntityNotFoundError("FollowUp", follow_up_id)
+
+    allowed_next = get_allowed_follow_up_transitions(
+        item.get("status") or "PENDING"
+    )
+    return {
+        "follow_up": dict(item),
+        "allowed_next_statuses": allowed_next,
+    }
+
+
+@router.post("")
+async def create_follow_up(
+    payload: FollowUpCreate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create a new follow-up. opportunity_id required (NOT NULL FK)."""
     opp = query(
         "SELECT id, customer_id FROM sale_opportunities WHERE id = ?",
         [payload.opportunity_id],
         one=True,
     )
     if not opp:
-        raise HTTPException(status_code=404, detail="Opportunity not found")
+        raise EntityNotFoundError("Opportunity", payload.opportunity_id)
 
     # Auto-fill customer_id from opportunity when caller leaves it blank
     customer_id = payload.customer_id or opp.get("customer_id")
@@ -196,13 +258,16 @@ async def create_follow_up(payload: FollowUpCreate):
     }
 
 
-@router.patch("/{follow_up_id}", dependencies=[Depends(require_write)])
-async def update_follow_up(follow_up_id: str, payload: FollowUpUpdate):
+@router.patch("/{follow_up_id}")
+async def update_follow_up(
+    follow_up_id: str,
+    payload: FollowUpUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update follow-up.
 
-    status=DONE/CANCELLED → terminal.
-    status=RESCHEDULED + next_follow_up → terminal on this row + auto-creates
-    a new PENDING follow-up with the new date.
+    status changes go through the follow-up state machine. RESCHEDULED +
+    new next_follow_up auto-spawns a fresh PENDING row with the new date.
     """
     existing = query(
         "SELECT * FROM sale_follow_up_schedules WHERE id = ?",
@@ -210,7 +275,7 @@ async def update_follow_up(follow_up_id: str, payload: FollowUpUpdate):
         one=True,
     )
     if not existing:
-        raise HTTPException(status_code=404, detail="Follow-up not found")
+        raise EntityNotFoundError("Follow-up", follow_up_id)
 
     data = (
         payload.model_dump(exclude_unset=True)
@@ -220,14 +285,26 @@ async def update_follow_up(follow_up_id: str, payload: FollowUpUpdate):
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    # Auto-bump follow_up_count when transitioning out of PENDING
+    # State machine — reject illegal transitions before mutation.
     new_status = data.get("status")
-    if (
-        new_status
-        and new_status != existing.get("status")
-        and existing.get("status") == "PENDING"
-    ):
-        data["last_follow_up"] = data.get("last_follow_up") or datetime.now().isoformat()
+    current_status = existing.get("status") or "PENDING"
+    if new_status and new_status != current_status:
+        try:
+            validate_follow_up_transition(current_status, new_status)
+        except InvalidTransitionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        log_status_change(
+            "follow_up", follow_up_id,
+            current_status, new_status,
+            changed_by=user.actor,
+        )
+        # Stamp last_follow_up when a PENDING row moves on.
+        if current_status == "PENDING":
+            data["last_follow_up"] = (
+                data.get("last_follow_up") or datetime.now().isoformat()
+            )
 
     now = datetime.now().isoformat()
     sets = [f"{k} = ?" for k in data.keys()]
@@ -270,3 +347,47 @@ async def update_follow_up(follow_up_id: str, payload: FollowUpUpdate):
         "spawned_follow_up_id": spawned_id,
         "updated_fields": list(data.keys()),
     }
+
+
+@router.delete("/{follow_up_id}")
+async def soft_delete_follow_up(
+    follow_up_id: str,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Soft-delete a follow-up: set status='CANCELLED'. Writer tier OK
+    because follow-ups are routinely re-scheduled or dropped by the
+    person who owns the customer.
+    """
+    existing = query(
+        "SELECT id, status FROM sale_follow_up_schedules WHERE id = ?",
+        [follow_up_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("FollowUp", follow_up_id)
+
+    if existing.get("status") == "CANCELLED":
+        return {"id": follow_up_id, "status": "already_cancelled"}
+
+    # Use the state machine — most non-terminal states allow CANCELLED.
+    try:
+        validate_follow_up_transition(
+            existing.get("status") or "PENDING", "CANCELLED",
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    now = datetime.now().isoformat()
+    execute(
+        """
+        UPDATE sale_follow_up_schedules
+        SET status = 'CANCELLED', is_active = 0, updated_at = ?
+        WHERE id = ?
+        """,
+        [now, follow_up_id],
+    )
+    log_status_change(
+        "follow_up", follow_up_id,
+        existing.get("status") or "", "CANCELLED",
+        changed_by=user.actor,
+    )
+    return {"id": follow_up_id, "status": "cancelled"}

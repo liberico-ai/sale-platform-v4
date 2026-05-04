@@ -451,6 +451,15 @@ CREATE INDEX IF NOT EXISTS idx_sms_created ON sale_market_signals(created_at);
 CREATE INDEX IF NOT EXISTS idx_sms_customer ON sale_market_signals(related_customer_id);
 CREATE INDEX IF NOT EXISTS idx_sms_expires ON sale_market_signals(expires_at);
 
+-- Phase 2 step 10 — signal lifecycle: NEW → ACKNOWLEDGED → CONVERTED|DISMISSED.
+-- Added via ALTER (rule #1) so we don't disturb the canonical CREATE TABLE.
+ALTER TABLE sale_market_signals ADD COLUMN status TEXT DEFAULT 'NEW';
+ALTER TABLE sale_market_signals ADD COLUMN acknowledged_by TEXT;
+ALTER TABLE sale_market_signals ADD COLUMN acknowledged_at TEXT;
+ALTER TABLE sale_market_signals ADD COLUMN dismiss_reason TEXT;
+ALTER TABLE sale_market_signals ADD COLUMN converted_opportunity_id TEXT REFERENCES sale_opportunities(id);
+CREATE INDEX IF NOT EXISTS idx_sms_status ON sale_market_signals(status);
+
 
 -- ── TABLE 18: sale_product_opportunities ──  [M2 Product-Capability]
 -- Product-customer fit matrix
@@ -899,6 +908,17 @@ CREATE TABLE IF NOT EXISTS sale_quotation_history (
 CREATE INDEX IF NOT EXISTS idx_qh_no ON sale_quotation_history(quotation_no);
 CREATE INDEX IF NOT EXISTS idx_qh_cust ON sale_quotation_history(customer_code);
 CREATE INDEX IF NOT EXISTS idx_qh_status ON sale_quotation_history(status);
+
+-- Workflow timestamps + opportunity link + loss tracking (Phase 2 step 4).
+-- Added via ALTER (rule #1) — never modify the canonical CREATE TABLE.
+ALTER TABLE sale_quotation_history ADD COLUMN sent_date TEXT;
+ALTER TABLE sale_quotation_history ADD COLUMN won_date TEXT;
+ALTER TABLE sale_quotation_history ADD COLUMN lost_date TEXT;
+ALTER TABLE sale_quotation_history ADD COLUMN opportunity_id TEXT REFERENCES sale_opportunities(id);
+ALTER TABLE sale_quotation_history ADD COLUMN loss_reason TEXT;
+ALTER TABLE sale_quotation_history ADD COLUMN competitor TEXT;
+ALTER TABLE sale_quotation_history ADD COLUMN updated_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_qh_opp ON sale_quotation_history(opportunity_id);
 
 
 -- ── TABLE 30: sale_active_contracts ──  (from 21_email_active_contracts.sql)

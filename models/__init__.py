@@ -9,10 +9,12 @@ from .enums import (
     EmailType,
     QuotationStatus,
     FollowUpType,
+    FollowUpStatus,
     NotificationType,
     CommissionStatus,
     CustomerStatus,
     ContractStatus,
+    SettlementStatus,
     InvoiceStatus,
 )
 from .customer import CustomerCreate, CustomerUpdate, CustomerResponse
@@ -56,10 +58,12 @@ __all__ = [
     "EmailType",
     "QuotationStatus",
     "FollowUpType",
+    "FollowUpStatus",
     "NotificationType",
     "CommissionStatus",
     "CustomerStatus",
     "ContractStatus",
+    "SettlementStatus",
     "InvoiceStatus",
     # Customer
     "CustomerCreate",

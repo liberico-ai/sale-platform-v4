@@ -14,22 +14,26 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import UserContext, get_current_writer
+    from ..auth import UserContext, get_current_writer, get_current_admin
+    from ..errors import EntityNotFoundError
     from ..services.state_machine import (
         validate_task_transition,
         get_allowed_task_transitions,
         InvalidTransitionError,
     )
     from ..services.audit import log_status_change
+    from ..services.notify import write_notification
 except ImportError:
     from database import query, execute
-    from auth import UserContext, get_current_writer
+    from auth import UserContext, get_current_writer, get_current_admin
+    from errors import EntityNotFoundError
     from services.state_machine import (
         validate_task_transition,
         get_allowed_task_transitions,
         InvalidTransitionError,
     )
     from services.audit import log_status_change
+    from services.notify import write_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -155,23 +159,26 @@ async def get_task_board():
 
 @router.get("/my")
 async def get_my_tasks(
-    current_user: str = Query(..., description="Current user name"),
+    current_user: Optional[str] = Query(
+        None,
+        description="Override identity. Defaults to authenticated user.",
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    user: UserContext = Depends(get_current_writer),
 ):
-    """Get tasks assigned to the current user.
+    """Get tasks assigned to the current user (Phase 2 step 7).
 
-    Args:
-        current_user: User name from auth context.
-        limit: Results per page (1-200).
-        offset: Number of results to skip.
-
-    Returns:
-        Paginated personal task list.
+    Identity resolves automatically from the X-API-Key — the
+    ``current_user`` query param is now optional and exists only so
+    ADMIN can pull someone else's queue.
     """
+    # Match the dashboard /my pattern: prefer authenticated identity.
+    target = current_user or user.user_email or user.user_name or user.actor
+
     total = query(
         "SELECT COUNT(*) as cnt FROM sale_tasks WHERE assigned_to = ?",
-        [current_user]
+        [target]
     )[0]["cnt"]
 
     items = query("""
@@ -184,9 +191,49 @@ async def get_my_tasks(
                           WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END,
             t.due_date ASC
         LIMIT ? OFFSET ?
-    """, [current_user, limit, offset])
+    """, [target, limit, offset])
 
-    return {"total": total, "items": items, "limit": limit, "offset": offset}
+    return {
+        "user": target,
+        "total": total,
+        "items": items,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/{task_id}")
+async def get_task_detail(task_id: str):
+    """Detailed view of a single task (Phase 2 step 7).
+
+    Joins linked opportunity + email so the SPA's task drawer renders
+    the full context without N+1 round-trips.
+    """
+    task = query(
+        """
+        SELECT t.*,
+               o.project_name AS opportunity_project,
+               o.customer_name AS opportunity_customer,
+               o.stage AS opportunity_stage,
+               e.subject AS email_subject,
+               e.from_address AS email_from
+        FROM sale_tasks t
+        LEFT JOIN sale_opportunities o ON o.id = t.opportunity_id
+        LEFT JOIN sale_emails e ON e.id = t.email_id
+        WHERE t.id = ?
+        """,
+        [task_id], one=True,
+    )
+    if not task:
+        raise EntityNotFoundError("Task", task_id)
+
+    # Allowed transitions for the SPA's status buttons.
+    allowed_next = get_allowed_task_transitions(task.get("status") or "PENDING")
+
+    return {
+        "task": dict(task),
+        "allowed_next_statuses": allowed_next,
+    }
 
 
 @router.post("")
@@ -232,6 +279,22 @@ async def create_task(
                 task_type=task.task_type,
                 from_dept=task.from_dept,
                 to_dept=task.to_dept)
+
+    # Notify the assignee on creation (if any). Uses dedupe so the same
+    # assignee won't get spammed if the task is bounced back-and-forth.
+    if task.assigned_to:
+        write_notification(
+            notification_type="TASK_ASSIGNED",
+            title=f"New task: {task.title}",
+            message=(
+                f"{task.from_dept} → {task.to_dept}: {task.task_type}"
+                + (f" (priority: {task.priority})" if task.priority else "")
+            ),
+            user_id=task.assigned_to,
+            entity_type="task",
+            entity_id=task_id,
+            severity="INFO",
+        )
 
     return {"id": task_id, "status": "ok", "message": f"Task created: {task.title}"}
 
@@ -307,6 +370,18 @@ async def update_task(
     if update.assigned_to is not None:
         sets.append("assigned_to = ?")
         params.append(update.assigned_to)
+        # Notify the new assignee when the task is reassigned to a
+        # different person.
+        if update.assigned_to != existing.get("assigned_to"):
+            write_notification(
+                notification_type="TASK_ASSIGNED",
+                title=f"Task reassigned to you: {existing.get('title') or 'Task'}",
+                message=existing.get("description") or existing.get("task_type"),
+                user_id=update.assigned_to,
+                entity_type="task",
+                entity_id=task_id,
+                severity="INFO",
+            )
     if update.description is not None:
         sets.append("description = ?")
         params.append(update.description)
@@ -380,3 +455,38 @@ async def escalate_task(
         "escalation_count": new_count,
         "escalated_to": escalate.escalated_to,
     }
+
+
+@router.delete("/{task_id}")
+async def soft_delete_task(
+    task_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    """Soft-delete a task: set status='CANCELLED'. Admin only.
+
+    Tasks aren't truly deleted because email_activity_log and audit
+    history reference task IDs.
+    """
+    existing = query(
+        "SELECT id, status FROM sale_tasks WHERE id = ?",
+        [task_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("Task", task_id)
+
+    if existing.get("status") == "CANCELLED":
+        return {"id": task_id, "status": "already_cancelled"}
+
+    now = datetime.now().isoformat()
+    execute(
+        "UPDATE sale_tasks SET status = 'CANCELLED', updated_at = ? WHERE id = ?",
+        [now, task_id],
+    )
+
+    log_status_change(
+        "task", task_id,
+        existing.get("status") or "", "CANCELLED",
+        changed_by=user.actor,
+    )
+    logger.info("task_soft_deleted", task_id=task_id)
+    return {"id": task_id, "status": "cancelled"}

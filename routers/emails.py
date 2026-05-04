@@ -13,10 +13,12 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, require_write, get_current_writer
+    from ..errors import EntityNotFoundError
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, require_write, get_current_writer
+    from errors import EntityNotFoundError
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +58,7 @@ async def list_emails(
     source_dept: Optional[str] = Query(None, description="Filter by source department"),
     date_from: Optional[str] = Query(None, description="Filter emails from date (ISO format)"),
     date_to: Optional[str] = Query(None, description="Filter emails to date (ISO format)"),
+    search: Optional[str] = Query(None, description="Search subject + body"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -97,7 +100,14 @@ async def list_emails(
     if date_to:
         where.append("created_at <= ?")
         params.append(date_to)
-    
+    if search:
+        # Free-text search across subject + body_text. SQLite LIKE is
+        # case-insensitive by default for ASCII; Vietnamese diacritics
+        # work as exact matches. Phase 3 can swap in FTS5.
+        like = f"%{search}%"
+        where.append("(subject LIKE ? OR body_text LIKE ? OR snippet LIKE ?)")
+        params.extend([like, like, like])
+
     where_sql = " AND ".join(where) if where else "1=1"
     
     total = query(f"SELECT COUNT(*) as cnt FROM sale_emails WHERE {where_sql}", params)[0]["cnt"]
@@ -279,6 +289,117 @@ async def create_task_from_email(email_id: str, task: TaskFromEmailCreate):
     """, [str(uuid.uuid4()), email_id, opportunity_id, task_id, task.assigned_to, now])
 
     return {"id": task_id, "status": "ok", "message": f"Task created from email: {task.title}"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Create-from-context — opportunity from email (Phase 2 step 8)
+# ═══════════════════════════════════════════════════════════════
+
+class OpportunityFromEmailCreate(BaseModel):
+    """Optional overrides when promoting an email to an opportunity.
+
+    All fields default to values pulled from the email itself when blank
+    — the SPA can call this with an empty body for the common case
+    "make this RFQ into an opportunity".
+    """
+    project_name: Optional[str] = None
+    product_group: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    contract_value_usd: Optional[float] = None
+    win_probability: Optional[int] = 30
+    assigned_to: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/{email_id}/create-opportunity")
+async def create_opportunity_from_email(
+    email_id: str,
+    payload: OpportunityFromEmailCreate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Promote an email (typically an RFQ) into a new opportunity.
+
+    Pre-fills customer / project from the email metadata, links the
+    email to the new opportunity, and starts the opp at PROSPECT.
+    Opportunity is created even if there's no customer match — the
+    sales rep can refine after.
+    """
+    email = query(
+        "SELECT * FROM sale_emails WHERE id = ?",
+        [email_id], one=True,
+    )
+    if not email:
+        raise EntityNotFoundError("Email", email_id)
+
+    customer_id = payload.customer_id or email.get("customer_id")
+    customer_name = payload.customer_name or ""
+    if customer_id and not customer_name:
+        cust = query(
+            "SELECT name FROM sale_customers WHERE id = ?",
+            [customer_id], one=True,
+        )
+        if cust:
+            customer_name = cust.get("name") or ""
+    if not customer_name:
+        # Fall back to from_name on the email — better than blank.
+        customer_name = email.get("from_name") or email.get("from_address") or "Unknown"
+
+    project_name = (
+        payload.project_name
+        or email.get("subject")
+        or "Opportunity from email"
+    )
+
+    opp_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_opportunities
+            (id, customer_id, customer_name, project_name, product_group,
+             stage, contract_value_usd, win_probability,
+             assigned_to, notes, last_activity_date,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'PROSPECT', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            opp_id, customer_id, customer_name, project_name,
+            payload.product_group or "Other",
+            payload.contract_value_usd, payload.win_probability or 30,
+            payload.assigned_to, payload.notes or f"Created from email {email_id}",
+            now, now, now,
+        ],
+    )
+
+    # Link the email back to the new opportunity.
+    execute(
+        "UPDATE sale_emails SET opportunity_id = ? WHERE id = ?",
+        [opp_id, email_id],
+    )
+
+    # Email activity log entry.
+    execute(
+        """
+        INSERT INTO sale_email_activity_log
+            (id, email_id, opportunity_id, action_type, action_by, created_at)
+        VALUES (?, ?, ?, 'LINKED_TO_OPP', ?, ?)
+        """,
+        [str(uuid.uuid4()), email_id, opp_id, user.actor, now],
+    )
+
+    logger.info(
+        "opportunity_from_email",
+        opp_id=opp_id, email_id=email_id, customer_id=customer_id,
+    )
+    return {
+        "id": opp_id,
+        "stage": "PROSPECT",
+        "customer_id": customer_id,
+        "customer_name": customer_name,
+        "project_name": project_name,
+        "linked_email_id": email_id,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════

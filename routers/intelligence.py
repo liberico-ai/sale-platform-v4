@@ -1,18 +1,30 @@
 """Intelligence Router — Market Signals & Product-Customer Fit Scores.
 
-Read-only access to AI-derived signals (Z4 in the 4-zone data model).
-Writes to these tables come from the AI pipeline, not the API.
+Read-only access to AI-derived signal *content* (Z4 in the 4-zone data
+model). Phase 2 added human-acknowledgement/dismissal/conversion
+actions on top — those mutate operational metadata only (status,
+acknowledged_at) and never the AI-generated payload itself.
 """
 
-from fastapi import APIRouter, Query, HTTPException
+import uuid
+from datetime import datetime
 from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 
 import structlog
 
 try:
-    from ..database import query
+    from ..database import query, execute
+    from ..auth import UserContext, get_current_writer
+    from ..errors import EntityNotFoundError
+    from ..services.audit import log_status_change
 except ImportError:
-    from database import query
+    from database import query, execute
+    from auth import UserContext, get_current_writer
+    from errors import EntityNotFoundError
+    from services.audit import log_status_change
 
 logger = structlog.get_logger(__name__)
 
@@ -199,3 +211,179 @@ async def list_product_categories():
         "SELECT * FROM sale_product_categories ORDER BY code"
     )
     return {"items": items, "count": len(items)}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Signal lifecycle actions (Phase 2 step 10)
+# ═══════════════════════════════════════════════════════════════
+#
+# A signal is born NEW. The salesperson reviews it and:
+#   - acknowledges (seen, not actioned) → ACKNOWLEDGED
+#   - dismisses (irrelevant) → DISMISSED + dismiss_reason
+#   - converts to opportunity → CONVERTED + converted_opportunity_id
+
+
+def _load_signal_or_404(signal_id: str) -> dict:
+    sig = query(
+        "SELECT * FROM sale_market_signals WHERE id = ?",
+        [signal_id], one=True,
+    )
+    if not sig:
+        raise EntityNotFoundError("MarketSignal", signal_id)
+    return dict(sig)
+
+
+@router.post("/signals/{signal_id}/acknowledge")
+async def acknowledge_signal(
+    signal_id: str,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Mark a signal as ACKNOWLEDGED — seen but not yet actioned."""
+    sig = _load_signal_or_404(signal_id)
+    current = (sig.get("status") or "NEW").upper()
+    if current not in ("NEW", "DISMISSED"):
+        return {"id": signal_id, "status": current, "no_change": True}
+
+    now = datetime.now().isoformat()
+    execute(
+        """
+        UPDATE sale_market_signals
+        SET status = 'ACKNOWLEDGED', acknowledged_by = ?, acknowledged_at = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        [user.actor, now, now, signal_id],
+    )
+    log_status_change(
+        "market_signal", signal_id, current, "ACKNOWLEDGED",
+        changed_by=user.actor,
+    )
+    return {"id": signal_id, "status": "ACKNOWLEDGED",
+            "acknowledged_by": user.actor, "acknowledged_at": now}
+
+
+class _SignalDismiss(BaseModel):
+    reason: str
+
+
+@router.post("/signals/{signal_id}/dismiss")
+async def dismiss_signal(
+    signal_id: str,
+    payload: _SignalDismiss,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Dismiss a signal as not actionable. Reason is required for audit."""
+    sig = _load_signal_or_404(signal_id)
+    current = (sig.get("status") or "NEW").upper()
+    if current == "CONVERTED":
+        raise HTTPException(
+            status_code=422,
+            detail="Cannot dismiss a signal already converted to an opportunity",
+        )
+    if current == "DISMISSED":
+        return {"id": signal_id, "status": "DISMISSED", "no_change": True}
+
+    now = datetime.now().isoformat()
+    execute(
+        """
+        UPDATE sale_market_signals
+        SET status = 'DISMISSED', dismiss_reason = ?, is_actionable = 0,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        [payload.reason, now, signal_id],
+    )
+    log_status_change(
+        "market_signal", signal_id, current, "DISMISSED",
+        changed_by=user.actor,
+    )
+    return {"id": signal_id, "status": "DISMISSED", "reason": payload.reason}
+
+
+class _SignalConvert(BaseModel):
+    project_name: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    product_group: Optional[str] = None
+    contract_value_usd: Optional[float] = None
+    win_probability: Optional[int] = 25
+    assigned_to: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/signals/{signal_id}/convert-to-opportunity")
+async def convert_signal_to_opportunity(
+    signal_id: str,
+    payload: _SignalConvert,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Promote a market signal into a PROSPECT opportunity.
+
+    Idempotent — if the signal is already CONVERTED, returns the
+    existing opportunity_id.
+    """
+    sig = _load_signal_or_404(signal_id)
+    current = (sig.get("status") or "NEW").upper()
+    if current == "CONVERTED" and sig.get("converted_opportunity_id"):
+        return {
+            "id": signal_id,
+            "status": "CONVERTED",
+            "opportunity_id": sig["converted_opportunity_id"],
+            "no_change": True,
+        }
+
+    customer_id = payload.customer_id or sig.get("related_customer_id")
+    customer_name = payload.customer_name
+    if customer_id and not customer_name:
+        cust = query(
+            "SELECT name FROM sale_customers WHERE id = ?",
+            [customer_id], one=True,
+        )
+        if cust:
+            customer_name = cust.get("name")
+    if not customer_name:
+        customer_name = sig.get("competitor_name") or "Unknown"
+
+    project_name = payload.project_name or sig.get("title") or "Opportunity from signal"
+
+    opp_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_opportunities
+            (id, customer_id, customer_name, project_name, product_group,
+             stage, contract_value_usd, win_probability,
+             assigned_to, notes, last_activity_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'PROSPECT', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            opp_id, customer_id, customer_name, project_name,
+            payload.product_group or sig.get("related_product_group") or "Other",
+            payload.contract_value_usd, payload.win_probability or 25,
+            payload.assigned_to,
+            payload.notes or f"Converted from market signal: {sig.get('title')}",
+            now, now, now,
+        ],
+    )
+
+    execute(
+        """
+        UPDATE sale_market_signals
+        SET status = 'CONVERTED', converted_opportunity_id = ?,
+            actioned_by = ?, actioned_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        [opp_id, user.actor, now, now, signal_id],
+    )
+    log_status_change(
+        "market_signal", signal_id, current, "CONVERTED",
+        changed_by=user.actor,
+    )
+
+    return {
+        "id": signal_id,
+        "status": "CONVERTED",
+        "opportunity_id": opp_id,
+        "project_name": project_name,
+    }

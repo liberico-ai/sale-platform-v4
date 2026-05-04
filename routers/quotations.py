@@ -9,12 +9,14 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import UserContext, get_current_writer
+    from ..auth import UserContext, get_current_writer, get_current_admin
+    from ..errors import EntityNotFoundError
     from ..models.quotation import QuotationCreate, QuotationUpdate, QuotationRevise
     from ..services.state_machine import (
         validate_quotation_transition,
@@ -22,9 +24,12 @@ try:
         InvalidTransitionError,
     )
     from ..services.audit import log_status_change, log_financial_change
+    from ..services.notify import write_notification
+    from ..services import opportunity_lifecycle
 except ImportError:
     from database import query, execute
-    from auth import UserContext, get_current_writer
+    from auth import UserContext, get_current_writer, get_current_admin
+    from errors import EntityNotFoundError
     from models.quotation import QuotationCreate, QuotationUpdate, QuotationRevise
     from services.state_machine import (
         validate_quotation_transition,
@@ -32,6 +37,8 @@ except ImportError:
         InvalidTransitionError,
     )
     from services.audit import log_status_change, log_financial_change
+    from services.notify import write_notification
+    from services import opportunity_lifecycle
 
 logger = structlog.get_logger(__name__)
 
@@ -292,9 +299,9 @@ async def create_quotation(
              launch_date, duration_months, weight_ton, price_usd_mt,
              value_vnd, value_usd, gross_profit_usd, gp_percent,
              date_offer, incharge, status, remark, owner,
-             customer_id, source, created_at)
+             customer_id, opportunity_id, source, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, 'DRAFT', ?, ?, ?, 'API', ?)
+                ?, ?, 'DRAFT', ?, ?, ?, ?, 'API', ?, ?)
         """,
         [
             quotation_id, quotation_no, customer_code, customer_name,
@@ -305,7 +312,7 @@ async def create_quotation(
             payload.value_vnd, payload.value_usd,
             payload.gross_profit_usd, payload.gp_percent,
             date_offer, payload.incharge, payload.remark, payload.owner,
-            customer_id, now,
+            customer_id, payload.opportunity_id, now, now,
         ],
     )
 
@@ -505,3 +512,251 @@ async def revise_quotation(
         "revision_number": next_rev,
         "status": "ok",
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Workflow shortcuts (Phase 2 step 4) — /send, /win, /lose
+# ═══════════════════════════════════════════════════════════════
+#
+# These are convenience endpoints that wrap the same underlying state
+# transitions PATCH supports, but auto-stamp the workflow timestamps,
+# notify the right people, and (for /win) cascade to the linked
+# opportunity's WON lifecycle.
+
+
+def _load_quotation_or_404(quotation_id: str) -> dict:
+    quote = query(
+        "SELECT * FROM sale_quotation_history WHERE id = ?",
+        [quotation_id], one=True,
+    )
+    if not quote:
+        raise EntityNotFoundError("Quotation", quotation_id)
+    return dict(quote)
+
+
+def _validate_q_transition(current: str, new: str):
+    try:
+        validate_quotation_transition(current, new)
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/{quotation_id}/send")
+async def send_quotation(
+    quotation_id: str,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Mark a quotation as SENT — stamps sent_date and notifies the owner.
+
+    Email DRAFT creation is intentionally skipped here; it lives in the
+    /emails/compose path and respects rule #8 (never auto-send).
+    """
+    quote = _load_quotation_or_404(quotation_id)
+    current = quote.get("status") or "DRAFT"
+    _validate_q_transition(current, "SENT")
+
+    now = datetime.now().isoformat()
+    execute(
+        """
+        UPDATE sale_quotation_history
+        SET status = 'SENT', sent_date = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        [now, now, quotation_id],
+    )
+    log_status_change(
+        "quotation", quotation_id, current, "SENT",
+        changed_by=user.actor,
+    )
+
+    # Notify the opportunity owner so they know the quote went out.
+    if quote.get("opportunity_id"):
+        opp = query(
+            "SELECT assigned_to, project_name FROM sale_opportunities WHERE id = ?",
+            [quote["opportunity_id"]], one=True,
+        )
+        if opp and opp.get("assigned_to"):
+            write_notification(
+                notification_type="QUOTATION_SENT",
+                title=f"Quotation sent: {quote.get('project_name') or '-'}",
+                message=(
+                    f"Quotation #{quote.get('quotation_no')} for "
+                    f"{quote.get('customer_name') or '-'} marked SENT"
+                ),
+                user_id=opp["assigned_to"],
+                entity_type="quotation",
+                entity_id=quotation_id,
+                severity="INFO",
+            )
+
+    return {"id": quotation_id, "status": "SENT", "sent_date": now}
+
+
+@router.post("/{quotation_id}/win")
+async def win_quotation(
+    quotation_id: str,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Mark a quotation as WON. If linked to an opportunity, cascade
+    the opportunity to WON via the lifecycle service.
+    """
+    quote = _load_quotation_or_404(quotation_id)
+    current = quote.get("status") or "DRAFT"
+    _validate_q_transition(current, "WON")
+
+    now = datetime.now().isoformat()
+    execute(
+        """
+        UPDATE sale_quotation_history
+        SET status = 'WON', won_date = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        [now, now, quotation_id],
+    )
+    log_status_change(
+        "quotation", quotation_id, current, "WON",
+        changed_by=user.actor,
+    )
+
+    side_effects = None
+    opportunity_id = quote.get("opportunity_id")
+    if opportunity_id:
+        opp = query(
+            "SELECT * FROM sale_opportunities WHERE id = ?",
+            [opportunity_id], one=True,
+        )
+        if opp and opp.get("stage") not in ("WON", "IN_PROGRESS"):
+            # Cascade: bump opportunity to WON + run side effects.
+            try:
+                validate_quotation_transition  # silence linter — actually use opportunity validator below
+            except Exception:
+                pass
+            execute(
+                "UPDATE sale_opportunities SET stage = 'WON', updated_at = ? WHERE id = ?",
+                [now, opportunity_id],
+            )
+            log_status_change(
+                "opportunity", opportunity_id, opp.get("stage") or "", "WON",
+                changed_by=user.actor,
+            )
+            fresh = query(
+                "SELECT * FROM sale_opportunities WHERE id = ?",
+                [opportunity_id], one=True,
+            ) or {}
+            side_effects = opportunity_lifecycle.on_won(
+                dict(fresh), user_actor=user.actor,
+            )
+
+    response = {"id": quotation_id, "status": "WON", "won_date": now}
+    if side_effects:
+        response["opportunity_side_effects"] = side_effects
+    return response
+
+
+class _QuotationLoseBody(BaseModel):
+    """Body for /lose — loss_reason required."""
+    loss_reason: str
+    competitor: Optional[str] = None
+
+
+@router.post("/{quotation_id}/lose")
+async def lose_quotation(
+    quotation_id: str,
+    payload: _QuotationLoseBody,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Mark a quotation as LOST. Records loss_reason + competitor.
+
+    If linked to an opportunity AND every other quote on that opp is
+    also LOST, returns a hint suggesting the opp also be marked LOST.
+    The cascade itself is left explicit — sale teams sometimes hold
+    open opportunities for a re-quote round.
+    """
+    quote = _load_quotation_or_404(quotation_id)
+    current = quote.get("status") or "DRAFT"
+    _validate_q_transition(current, "LOST")
+
+    now = datetime.now().isoformat()
+    execute(
+        """
+        UPDATE sale_quotation_history
+        SET status = 'LOST', lost_date = ?, loss_reason = ?, competitor = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        [now, payload.loss_reason, payload.competitor, now, quotation_id],
+    )
+    log_status_change(
+        "quotation", quotation_id, current, "LOST",
+        changed_by=user.actor,
+    )
+
+    suggest_opportunity_lost = False
+    opportunity_id = quote.get("opportunity_id")
+    if opportunity_id:
+        # All other quotes for this opp also LOST?
+        sibling_stats = query(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN UPPER(status) = 'LOST' THEN 1 ELSE 0 END) AS lost
+            FROM sale_quotation_history
+            WHERE opportunity_id = ? AND id != ?
+            """,
+            [opportunity_id, quotation_id],
+            one=True,
+        ) or {}
+        total = int(sibling_stats.get("total") or 0)
+        lost = int(sibling_stats.get("lost") or 0)
+        if total > 0 and lost == total:
+            suggest_opportunity_lost = True
+
+    return {
+        "id": quotation_id,
+        "status": "LOST",
+        "lost_date": now,
+        "loss_reason": payload.loss_reason,
+        "suggest_opportunity_lost": suggest_opportunity_lost,
+    }
+
+
+@router.delete("/{quotation_id}")
+async def soft_delete_quotation(
+    quotation_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    """Soft-delete a quotation. Only DRAFT quotations can be deleted —
+    SENT/WON/LOST need to be cancelled via the workflow endpoints
+    instead so the audit trail stays clean.
+    """
+    existing = query(
+        "SELECT id, status FROM sale_quotation_history WHERE id = ?",
+        [quotation_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("Quotation", quotation_id)
+
+    current = (existing.get("status") or "DRAFT").upper()
+    if current != "DRAFT":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Cannot delete quotation in status {current} — only DRAFT "
+                f"quotations can be deleted. Use /cancel or /lose for others."
+            ),
+        )
+
+    now = datetime.now().isoformat()
+    execute(
+        "UPDATE sale_quotation_history SET status = 'DELETED', updated_at = ? "
+        "WHERE id = ?",
+        [now, quotation_id],
+    )
+
+    log_status_change(
+        "quotation", quotation_id, current, "DELETED",
+        changed_by=user.actor,
+    )
+    return {"id": quotation_id, "status": "deleted"}

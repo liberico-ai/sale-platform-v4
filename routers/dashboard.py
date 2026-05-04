@@ -331,16 +331,49 @@ _SUMMARY_TABLES = [
 
 
 @router.get("/summary")
-async def get_summary():
+async def get_summary(
+    date_from: Optional[str] = Query(
+        None,
+        description="ISO date (YYYY-MM-DD). Defaults to 30 days ago.",
+    ),
+    date_to: Optional[str] = Query(
+        None,
+        description="ISO date (YYYY-MM-DD). Defaults to today.",
+    ),
+):
     """Full 32-table aggregate dashboard.
 
-    Combines pipeline coverage, milestone health, settlement status, follow-ups,
-    market signals, and table-level record counts. Designed for the BD Director
-    landing page.
+    Combines pipeline coverage, milestone health, settlement status,
+    follow-ups, market signals, and table-level record counts. Designed
+    for the BD Director landing page.
+
+    Date filtering (Phase 2 step 11): when ``date_from``/``date_to`` are
+    omitted the window defaults to the last 30 days. The window applies
+    to creation timestamps so totals reflect "what happened in this
+    period" rather than the entire historical dataset. Record counts
+    remain absolute — they're a system health metric, not a reporting
+    metric.
     """
+    from datetime import timedelta as _td
+
+    if not date_to:
+        date_to = datetime.now().date().isoformat()
+    if not date_from:
+        date_from = (datetime.now().date() - _td(days=30)).isoformat()
+
+    # Convert inclusive end-of-day so date_to=today catches everything
+    # created today, not just rows with timestamp == 00:00.
+    date_to_inclusive = f"{date_to} 23:59:59"
+
+    date_filter_sql = "created_at BETWEEN ? AND ?"
+    date_params = [date_from, date_to_inclusive]
+
     now = datetime.now().isoformat()
 
-    # ── Pipeline ─────────────────────────────────────────────────
+    # ── Pipeline (lifetime) ──────────────────────────────────────
+    # Pipeline KPIs are intentionally lifetime — coverage vs KHKD is
+    # an annual metric. Date window applies to "new in window" buckets
+    # below.
     pipeline = query(
         """
         SELECT
@@ -352,8 +385,22 @@ async def get_summary():
             SUM(CASE WHEN stage = 'LOST' THEN 1 ELSE 0 END) AS lost_count,
             SUM(CASE WHEN stale_flag = 1 THEN 1 ELSE 0 END) AS stale_count
         FROM sale_opportunities
+        WHERE stage IS NULL OR stage != 'DELETED'
         """,
         one=True,
+    ) or {}
+
+    # New-in-window stats for the dashboard's date-range card.
+    in_window = query(
+        f"""
+        SELECT
+            COUNT(*) AS new_opps,
+            COALESCE(SUM(contract_value_usd), 0) AS new_value
+        FROM sale_opportunities
+        WHERE {date_filter_sql}
+          AND (stage IS NULL OR stage != 'DELETED')
+        """,
+        date_params, one=True,
     ) or {}
 
     by_stage = query(
@@ -569,6 +616,12 @@ async def get_summary():
 
     return {
         "timestamp": now,
+        "date_window": {
+            "from": date_from,
+            "to": date_to,
+            "new_opportunities": int(in_window.get("new_opps") or 0),
+            "new_pipeline_value_usd": float(in_window.get("new_value") or 0),
+        },
         "fiscal_year": khkd.get("fiscal_year", "N/A"),
         "totals": {
             "customers": customers_stats.get("total", 0),

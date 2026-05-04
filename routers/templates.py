@@ -16,10 +16,12 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import require_write, get_current_admin, UserContext
+    from ..errors import EntityNotFoundError
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import require_write, get_current_admin, UserContext
+    from errors import EntityNotFoundError
 
 logger = structlog.get_logger(__name__)
 
@@ -403,3 +405,42 @@ async def seed_email_templates():
         "skipped": skipped,
         "summary": f"{len(inserted)} created, {len(skipped)} already existed",
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Hard DELETE — templates have no audit trail dependency, so we can
+# remove them outright. Admin-only because deleted templates affect
+# every future quotation cover that referenced them.
+# ═══════════════════════════════════════════════════════════════
+
+@router.delete("/quote/{template_id}")
+async def delete_quote_template(
+    template_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    existing = query(
+        "SELECT id FROM sale_quote_templates WHERE id = ?",
+        [template_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("QuoteTemplate", template_id)
+    execute("DELETE FROM sale_quote_templates WHERE id = ?", [template_id])
+    return {"id": template_id, "status": "deleted"}
+
+
+@router.delete("/email/{template_type}")
+async def delete_email_template(
+    template_type: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    existing = query(
+        "SELECT id FROM sale_email_templates WHERE template_type = ?",
+        [template_type], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("EmailTemplate", template_type)
+    execute(
+        "DELETE FROM sale_email_templates WHERE template_type = ?",
+        [template_type],
+    )
+    return {"template_type": template_type, "status": "deleted"}

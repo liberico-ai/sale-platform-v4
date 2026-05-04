@@ -18,10 +18,12 @@ try:
     from ..database import query, execute
     from ..services.gmail_service import GmailService
     from ..services.classifier import classify_email, match_customer
+    from ..services.notify import write_notification
 except ImportError:
     from database import query, execute
     from services.gmail_service import GmailService
     from services.classifier import classify_email, match_customer
+    from services.notify import write_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -199,6 +201,18 @@ def _process_message(
     if email_type == "RFQ" and confidence > 0.8:
         _create_rfq_task(email_record_id, parsed, customer_id, owner)
         _create_rfq_draft(gmail, service, email_record_id, parsed)
+        # Notify the mailbox owner that an RFQ landed — they can act
+        # immediately even before opening the inbox.
+        if owner:
+            write_notification(
+                notification_type="EMAIL_RFQ",
+                title=f"New RFQ: {parsed.get('subject') or '(no subject)'}",
+                message=f"From {parsed.get('from_address') or 'unknown'} — task created",
+                user_id=owner,
+                entity_type="email",
+                entity_id=email_record_id,
+                severity="INFO",
+            )
 
     # Log email activity
     execute("""

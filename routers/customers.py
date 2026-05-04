@@ -4,6 +4,7 @@ Manages customer data, search, and customer details with contacts and opportunit
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import uuid
@@ -48,18 +49,22 @@ async def list_customers(
     Returns:
         dict: Total count, items list, limit, and offset
     """
+    # Filter out soft-deleted rows by default. Callers can opt in to
+    # deleted rows by passing status='DELETED' explicitly.
     where = []
     params = []
-    
+
     if region:
         where.append("region = ?")
         params.append(region)
     if status:
         where.append("status = ?")
         params.append(status)
-    
+    else:
+        where.append("(status IS NULL OR status != 'DELETED')")
+
     where_sql = " AND ".join(where) if where else "1=1"
-    
+
     total = query(f"SELECT COUNT(*) as cnt FROM sale_customers WHERE {where_sql}", params)[0]["cnt"]
     items = query(f"""
         SELECT * FROM sale_customers
@@ -67,7 +72,7 @@ async def list_customers(
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
     """, params + [limit, offset])
-    
+
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
@@ -604,3 +609,75 @@ async def soft_delete_customer(
 
     return {"id": customer_id, "status": "deleted",
             "message": "Customer deactivated (soft delete)"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Create-from-context (Phase 2 step 8)
+# ═══════════════════════════════════════════════════════════════
+
+class _FollowUpFromCustomer(BaseModel):
+    """Body for /customers/{id}/create-follow-up.
+
+    Schema requires opportunity_id (NOT NULL FK) so callers must
+    supply one — pick the opportunity to attach the follow-up to.
+    """
+    opportunity_id: str
+    schedule_type: str   # CALL | EMAIL | VISIT | MEETING
+    next_follow_up: str  # ISO datetime
+    contact_id: Optional[str] = None
+    assigned_to: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/{customer_id}/create-follow-up")
+async def create_follow_up_from_customer(
+    customer_id: str,
+    payload: _FollowUpFromCustomer,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create a follow-up scheduled against this customer.
+
+    Pre-fills customer_id; the opportunity_id must come from the body
+    because the schema enforces it.
+    """
+    cust = query(
+        "SELECT id FROM sale_customers WHERE id = ?",
+        [customer_id], one=True,
+    )
+    if not cust:
+        raise EntityNotFoundError("Customer", customer_id)
+
+    opp = query(
+        "SELECT id FROM sale_opportunities WHERE id = ?",
+        [payload.opportunity_id], one=True,
+    )
+    if not opp:
+        raise EntityNotFoundError("Opportunity", payload.opportunity_id)
+
+    follow_up_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_follow_up_schedules
+            (id, opportunity_id, customer_id, contact_id, schedule_type,
+             next_follow_up, follow_up_count, is_active, status,
+             assigned_to, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 1, 'PENDING', ?, ?, ?, ?)
+        """,
+        [
+            follow_up_id, payload.opportunity_id, customer_id,
+            payload.contact_id, payload.schedule_type,
+            payload.next_follow_up,
+            payload.assigned_to or user.actor,
+            payload.notes, now, now,
+        ],
+    )
+
+    return {
+        "id": follow_up_id,
+        "customer_id": customer_id,
+        "opportunity_id": payload.opportunity_id,
+        "next_follow_up": payload.next_follow_up,
+        "status": "PENDING",
+    }

@@ -103,12 +103,35 @@ class CustomerStatus(str, Enum):
 
 
 class ContractStatus(str, Enum):
-    """sale_active_contracts.contract_status values."""
+    """sale_active_contracts.contract_status values — see state_machine.CONTRACT_TRANSITIONS."""
 
+    DRAFT = "DRAFT"
     ACTIVE = "ACTIVE"
-    COMPLETED = "COMPLETED"
-    CANCELLED = "CANCELLED"
+    IN_PROGRESS = "IN_PROGRESS"
     ON_HOLD = "ON_HOLD"
+    COMPLETED = "COMPLETED"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+
+
+class SettlementStatus(str, Enum):
+    """sale_settlements.settlement_status values."""
+
+    OPEN = "OPEN"
+    IN_REVIEW = "IN_REVIEW"
+    APPROVED = "APPROVED"
+    CLOSED = "CLOSED"
+    CANCELLED = "CANCELLED"
+
+
+class FollowUpStatus(str, Enum):
+    """sale_follow_up_schedules.status values."""
+
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    RESCHEDULED = "RESCHEDULED"
+    CANCELLED = "CANCELLED"
 
 
 class InvoiceStatus(str, Enum):

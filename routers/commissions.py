@@ -21,11 +21,27 @@ import structlog
 try:
     from ..database import query, execute
     from ..auth import UserContext, get_current_writer, get_current_admin
+    from ..errors import EntityNotFoundError
     from ..services.audit import log_status_change, log_financial_change
+    from ..services.notify import write_notification
+    from ..services.state_machine import (
+        validate_commission_transition,
+        get_allowed_commission_transitions,
+        commission_requires_admin,
+        InvalidTransitionError,
+    )
 except ImportError:
     from database import query, execute
     from auth import UserContext, get_current_writer, get_current_admin
+    from errors import EntityNotFoundError
     from services.audit import log_status_change, log_financial_change
+    from services.notify import write_notification
+    from services.state_machine import (
+        validate_commission_transition,
+        get_allowed_commission_transitions,
+        commission_requires_admin,
+        InvalidTransitionError,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -104,15 +120,13 @@ _AUDITED_FIELDS = {
 
 
 def _validate(current: str, new: str):
-    cur = (current or "CALCULATED").upper()
-    nxt = (new or "").upper()
-    allowed = _TRANSITIONS.get(cur, set())
-    if nxt not in allowed:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid commission transition: {cur} → {nxt}. "
-                   f"Allowed: {sorted(allowed) or 'terminal'}",
-        )
+    """Delegate to canonical state machine for transition checks."""
+    try:
+        validate_commission_transition(current, new)
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("")
@@ -369,6 +383,20 @@ async def update_commission(
     new_status = data.get("status")
     if new_status and new_status != existing.get("status"):
         _validate(existing.get("status") or "CALCULATED", new_status)
+
+        # Admin gate — APPROVED and PAID need ADMIN tier even though
+        # the route accepts any writer. This keeps the create/calculate
+        # flow open to MANAGER while the financial-impact transitions
+        # stay locked down.
+        if commission_requires_admin(new_status) and user.key_tier != "ADMIN":
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Commission status {new_status} requires ADMIN tier. "
+                    f"You have: {user.key_tier}"
+                ),
+            )
+
         log_status_change(
             "commission", commission_id,
             existing.get("status") or "", new_status,
@@ -378,6 +406,24 @@ async def update_commission(
             data["approved_at"] = datetime.now().isoformat()
         if new_status == "PAID" and not existing.get("paid_at"):
             data["paid_at"] = datetime.now().isoformat()
+
+        # Notify the salesperson when their commission moves to a
+        # money-impacting status.
+        salesperson = existing.get("salesperson")
+        if salesperson and new_status in ("APPROVED", "PAID", "VOIDED"):
+            amount = existing.get("commission_amount_usd") or 0
+            write_notification(
+                notification_type="COMMISSION_STATUS",
+                title=f"Commission {new_status}",
+                message=(
+                    f"Commission of ${amount:,.2f} for FY"
+                    f"{existing.get('fiscal_year') or '?'} → {new_status}"
+                ),
+                user_id=salesperson,
+                entity_type="commission",
+                entity_id=commission_id,
+                severity="INFO" if new_status != "VOIDED" else "WARN",
+            )
 
     diffs = {}
     for f in _AUDITED_FIELDS:
@@ -399,3 +445,43 @@ async def update_commission(
 
     return {"id": commission_id, "status": "ok",
             "updated_fields": list(data.keys())}
+
+
+@router.delete("/{commission_id}")
+async def void_commission(
+    commission_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    """Void a commission: set status='VOIDED'. Admin only.
+
+    PAID commissions cannot be voided — they need a CALCULATED reversal
+    entry instead so the books stay traceable.
+    """
+    existing = query(
+        "SELECT id, status FROM sale_commissions WHERE id = ?",
+        [commission_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("Commission", commission_id)
+
+    if existing.get("status") == "VOIDED":
+        return {"id": commission_id, "status": "already_voided"}
+
+    try:
+        validate_commission_transition(
+            existing.get("status") or "CALCULATED", "VOIDED",
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    now = datetime.now().isoformat()
+    execute(
+        "UPDATE sale_commissions SET status = 'VOIDED', updated_at = ? WHERE id = ?",
+        [now, commission_id],
+    )
+    log_status_change(
+        "commission", commission_id,
+        existing.get("status") or "", "VOIDED",
+        changed_by=user.actor,
+    )
+    return {"id": commission_id, "status": "voided"}

@@ -27,6 +27,8 @@ try:
         log_financial_change,
         AUDITED_OPPORTUNITY_FIELDS,
     )
+    from ..services.notify import write_notification
+    from ..services import opportunity_lifecycle
 except ImportError:
     from database import query, execute
     from auth import UserContext, get_current_writer, get_current_admin
@@ -41,6 +43,8 @@ except ImportError:
         log_financial_change,
         AUDITED_OPPORTUNITY_FIELDS,
     )
+    from services.notify import write_notification
+    from services import opportunity_lifecycle
 
 logger = structlog.get_logger(__name__)
 
@@ -62,12 +66,18 @@ class OpportunityCreate(BaseModel):
 
 
 class OpportunityUpdate(BaseModel):
-    """Model for updating an opportunity."""
+    """Model for updating an opportunity.
+
+    ``loss_reason`` is required when transitioning stage to LOST — the
+    handler enforces that and returns 422 if it's missing.
+    """
     stage: Optional[str] = None
     win_probability: Optional[int] = None
     contract_value_usd: Optional[float] = None
     notes: Optional[str] = None
     assigned_to: Optional[str] = None
+    loss_reason: Optional[str] = None
+    competitor: Optional[str] = None
 
 
 @router.get("")
@@ -96,6 +106,9 @@ async def list_opportunities(
     if stage:
         where.append("stage = ?")
         params.append(stage)
+    else:
+        # Hide soft-deleted opportunities unless caller asks for them.
+        where.append("(stage IS NULL OR stage != 'DELETED')")
     if product_group:
         where.append("product_group = ?")
         params.append(product_group)
@@ -238,11 +251,40 @@ async def update_opportunity(
         sets.append("stage = ?")
         params.append(update.stage)
 
+        # LOST requires a loss_reason — fail fast before mutation.
+        if update.stage == "LOST" and not update.loss_reason:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "loss_reason is required when transitioning opportunity "
+                    "to LOST. Pass it in the request body."
+                ),
+            )
+
         # Log status change
         log_status_change(
             "opportunity", opp_id, current_stage, update.stage,
             changed_by=user.actor,
         )
+
+        # Notify the assigned account manager (if any). The notification
+        # service dedupes on (user_id, type, entity_id) within 24h so a
+        # rapid-fire stage shuttle won't spam them.
+        assigned_to = existing.get("assigned_to")
+        if assigned_to:
+            write_notification(
+                notification_type="OPP_STAGE_CHANGE",
+                title=f"Opportunity moved to {update.stage}",
+                message=(
+                    f"{existing.get('project_name') or 'Opportunity'} "
+                    f"({existing.get('customer_name') or '-'}): "
+                    f"{current_stage} → {update.stage}"
+                ),
+                user_id=assigned_to,
+                entity_type="opportunity",
+                entity_id=opp_id,
+                severity="INFO",
+            )
 
         logger.info("opportunity_stage_changed",
                      opp_id=opp_id,
@@ -325,16 +367,41 @@ async def update_opportunity(
             changed_by=user.actor,
         )
 
+    # Stage-driven lifecycle side effects (Phase 2 step 3). Run AFTER the
+    # UPDATE commits so downstream queries see the new stage. Re-fetch
+    # the row so the lifecycle service works with current data including
+    # any field updates from this PATCH.
+    side_effects = None
+    if update.stage in ("WON", "LOST"):
+        fresh = query(
+            "SELECT * FROM sale_opportunities WHERE id = ?",
+            [opp_id], one=True,
+        ) or {}
+        if update.stage == "WON":
+            side_effects = opportunity_lifecycle.on_won(
+                dict(fresh), user_actor=user.actor,
+            )
+        elif update.stage == "LOST":
+            side_effects = opportunity_lifecycle.on_lost(
+                dict(fresh),
+                loss_reason=update.loss_reason,
+                competitor=update.competitor,
+                user_actor=user.actor,
+            )
+
     # Return current stage and allowed next transitions
     current_stage = update.stage or existing.get("stage", "PROSPECT")
     allowed_next = get_allowed_opportunity_transitions(current_stage)
 
-    return {
+    response = {
         "id": opp_id,
         "status": "ok",
         "current_stage": current_stage,
         "allowed_next_stages": allowed_next,
     }
+    if side_effects:
+        response["side_effects"] = side_effects
+    return response
 
 
 @router.delete("/{opp_id}")
@@ -443,3 +510,188 @@ async def get_opportunity_detail(opp_id: str):
 #   GET /quotations?customer_code=X
 #   GET /contracts (sale_active_contracts list)
 #   GET /quotations/by-opportunity/{opp_id}/revisions
+
+
+# ═══════════════════════════════════════════════════════════════
+# Create-from-context (Phase 2 step 8)
+# ═══════════════════════════════════════════════════════════════
+
+class _QuoteFromOppCreate(BaseModel):
+    """Optional overrides when creating a quotation from an opportunity."""
+    incharge: Optional[str] = None
+    weight_ton: Optional[float] = None
+    value_usd: Optional[float] = None
+    gp_percent: Optional[float] = None
+    scope_of_work: Optional[str] = None
+    remark: Optional[str] = None
+
+
+@router.post("/{opp_id}/create-quotation")
+async def create_quotation_from_opportunity(
+    opp_id: str,
+    payload: _QuoteFromOppCreate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create a DRAFT quotation pre-filled from opportunity data."""
+    opp = query(
+        "SELECT * FROM sale_opportunities WHERE id = ?",
+        [opp_id], one=True,
+    )
+    if not opp:
+        raise EntityNotFoundError("Opportunity", opp_id)
+
+    # Get the next quotation_no (mirror logic in quotations.py)
+    next_no_row = query(
+        "SELECT COALESCE(MAX(quotation_no), 0) + 1 AS n "
+        "FROM sale_quotation_history",
+        one=True,
+    ) or {}
+    quotation_no = int(next_no_row.get("n") or 1)
+
+    quotation_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    execute(
+        """
+        INSERT INTO sale_quotation_history
+            (id, quotation_no, customer_code, customer_name, country,
+             product_type, project_name, scope_of_work,
+             weight_ton, value_usd, gp_percent,
+             date_offer, incharge, status, remark,
+             customer_id, opportunity_id, source, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                'DRAFT', ?, ?, ?, 'OPPORTUNITY', ?, ?)
+        """,
+        [
+            quotation_id, quotation_no, None,
+            opp.get("customer_name"), None,
+            opp.get("product_group"), opp.get("project_name"),
+            payload.scope_of_work or opp.get("scope_en") or opp.get("scope_vn"),
+            payload.weight_ton or opp.get("weight_ton"),
+            payload.value_usd or opp.get("contract_value_usd"),
+            payload.gp_percent or opp.get("gm_percent"),
+            now[:10],
+            payload.incharge or opp.get("assigned_to"),
+            payload.remark,
+            opp.get("customer_id"),
+            opp_id, now, now,
+        ],
+    )
+
+    logger.info(
+        "quotation_from_opportunity",
+        quotation_id=quotation_id, opp_id=opp_id,
+    )
+    return {
+        "id": quotation_id,
+        "quotation_no": quotation_no,
+        "status": "DRAFT",
+        "opportunity_id": opp_id,
+    }
+
+
+class _TaskFromOppCreate(BaseModel):
+    """Body for creating a task in opportunity context."""
+    title: str
+    task_type: str
+    description: Optional[str] = None
+    from_dept: str = "SALE"
+    to_dept: str = "SALE"
+    assigned_to: Optional[str] = None
+    priority: Optional[str] = "NORMAL"
+    sla_hours: Optional[int] = None
+    due_date: Optional[str] = None
+
+
+@router.post("/{opp_id}/create-task")
+async def create_task_from_opportunity(
+    opp_id: str,
+    payload: _TaskFromOppCreate,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create a task linked to an opportunity (Phase 2 step 8)."""
+    opp = query(
+        "SELECT id, customer_name, project_name, assigned_to FROM sale_opportunities WHERE id = ?",
+        [opp_id], one=True,
+    )
+    if not opp:
+        raise EntityNotFoundError("Opportunity", opp_id)
+
+    task_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    assigned_to = payload.assigned_to or opp.get("assigned_to")
+
+    execute(
+        """
+        INSERT INTO sale_tasks
+            (id, opportunity_id, task_type, title, description,
+             from_dept, to_dept, assigned_to, assigned_by,
+             sla_hours, due_date, status, priority, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+        """,
+        [
+            task_id, opp_id, payload.task_type, payload.title,
+            payload.description, payload.from_dept, payload.to_dept,
+            assigned_to, user.actor,
+            payload.sla_hours, payload.due_date, payload.priority or "NORMAL",
+            now, now,
+        ],
+    )
+
+    if assigned_to:
+        write_notification(
+            notification_type="TASK_ASSIGNED",
+            title=f"New task: {payload.title}",
+            message=f"From {opp.get('project_name') or 'opportunity'}",
+            user_id=assigned_to,
+            entity_type="task",
+            entity_id=task_id,
+            severity="INFO",
+        )
+
+    return {
+        "id": task_id,
+        "opportunity_id": opp_id,
+        "status": "PENDING",
+        "assigned_to": assigned_to,
+    }
+
+
+@router.post("/{opp_id}/create-contract")
+async def create_contract_from_opportunity(
+    opp_id: str,
+    user: UserContext = Depends(get_current_writer),
+):
+    """Create the contract + 3 default milestones for a WON opportunity.
+
+    Only works when the opportunity is in WON or IN_PROGRESS — earlier
+    stages return 422. Idempotent: a second call returns the existing
+    contract instead of creating a duplicate.
+    """
+    opp = query(
+        "SELECT * FROM sale_opportunities WHERE id = ?",
+        [opp_id], one=True,
+    )
+    if not opp:
+        raise EntityNotFoundError("Opportunity", opp_id)
+
+    stage = (opp.get("stage") or "").upper()
+    if stage not in ("WON", "IN_PROGRESS"):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Cannot create contract from opportunity in stage {stage}. "
+                f"Move the opportunity to WON first."
+            ),
+        )
+
+    # Reuse the lifecycle helper — same code path as PATCH stage=WON.
+    side_effects = opportunity_lifecycle.on_won(
+        dict(opp), user_actor=user.actor,
+    )
+    return {
+        "opportunity_id": opp_id,
+        "contract_id": side_effects.get("contract_id"),
+        "milestone_ids": side_effects.get("milestone_ids", []),
+        "commission_id": side_effects.get("commission_id"),
+    }

@@ -1,25 +1,36 @@
 """Reports Router — sale_report_configs (CRUD) + sale_audit_log (read).
 
-Two surfaces in one file:
+Three surfaces in one file:
 - /reports/configs — manage scheduled / on-demand report definitions
+- /reports/configs/{id}/run — generate a report (Phase 2 step 12)
 - /reports/audit-log — surface the audit trail with filters
 """
 
+import json
 import uuid
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import (
+        UserContext, require_write, get_current_writer, get_current_admin,
+    )
+    from ..errors import EntityNotFoundError
+    from ..services import report_engine
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import (
+        UserContext, require_write, get_current_writer, get_current_admin,
+    )
+    from errors import EntityNotFoundError
+    from services import report_engine
 
 logger = structlog.get_logger(__name__)
 
@@ -169,37 +180,153 @@ async def update_report_config(config_id: str, payload: ReportConfigUpdate):
     return {"id": config_id, "status": "ok"}
 
 
-@router.post("/configs/{config_id}/run", dependencies=[Depends(require_write)])
-async def mark_report_run(
+@router.delete("/configs/{config_id}")
+async def delete_report_config(
     config_id: str,
-    status: str = Query("OK", description="OK | ERROR"),
-    error_message: Optional[str] = Query(None),
+    user: UserContext = Depends(get_current_admin),
 ):
-    """Record that a report config was run.
+    """Hard-delete a report config. Admin only.
 
-    Sale Platform doesn't actually generate report files yet — that's a
-    Phase 2 worker. This endpoint just bumps run_count + last_run_at so
-    the schedule UI knows it fired.
+    Report configs have no audit-log dependencies, so we drop the row
+    rather than soft-deleting.
     """
     existing = query(
-        "SELECT run_count FROM sale_report_configs WHERE id = ?",
+        "SELECT id FROM sale_report_configs WHERE id = ?",
         [config_id], one=True,
     )
     if not existing:
-        raise HTTPException(status_code=404, detail="Report config not found")
+        raise EntityNotFoundError("ReportConfig", config_id)
+    execute("DELETE FROM sale_report_configs WHERE id = ?", [config_id])
+    return {"id": config_id, "status": "deleted"}
+
+
+@router.post("/configs/{config_id}/run")
+async def run_report(
+    config_id: str,
+    fmt: str = Query("json", description="json | csv | xlsx"),
+    user: UserContext = Depends(get_current_writer),
+):
+    """Generate a report from a config (Phase 2 step 12).
+
+    JSON returns the rows inline. CSV / XLSX return file responses
+    with a Content-Disposition header so the browser triggers a
+    download.
+
+    Filters can be defined in ``sale_report_configs.filters_json``;
+    ad-hoc overrides are not yet exposed here — that's a Phase 3
+    polish (POST body filters).
+    """
+    existing = query(
+        "SELECT * FROM sale_report_configs WHERE id = ?",
+        [config_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("ReportConfig", config_id)
 
     now = datetime.now().isoformat()
+    try:
+        metadata, payload = report_engine.generate(dict(existing), fmt=fmt)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        # Record the failure on the config so the UI shows it.
+        execute(
+            """
+            UPDATE sale_report_configs
+            SET last_run_at = ?, last_run_status = 'ERROR',
+                last_run_error = ?, run_count = COALESCE(run_count, 0) + 1,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            [now, str(exc)[:500], now, config_id],
+        )
+        logger.exception("report_generation_failed", config_id=config_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
     new_count = (existing.get("run_count") or 0) + 1
     execute(
         """
         UPDATE sale_report_configs
-        SET run_count = ?, last_run_at = ?, last_run_status = ?,
-            last_run_error = ?, updated_at = ?
+        SET last_run_at = ?, last_run_status = 'OK',
+            last_run_error = NULL, run_count = ?, updated_at = ?
         WHERE id = ?
         """,
-        [new_count, now, status, error_message, now, config_id],
+        [now, new_count, now, config_id],
     )
-    return {"id": config_id, "run_count": new_count, "last_run_status": status}
+
+    if metadata.get("format") == "json":
+        return metadata
+
+    # CSV / XLSX: return file response.
+    actual_fmt = metadata.get("format")
+    media = (
+        "text/csv" if actual_fmt == "csv"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    fname = (
+        f"{(existing.get('report_name') or 'report').replace(' ', '_')}"
+        f"_{now[:10]}.{actual_fmt}"
+    )
+    return Response(
+        content=payload,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Report-Type": metadata.get("report_type") or "",
+            "X-Report-Row-Count": str(metadata.get("row_count") or 0),
+        },
+    )
+
+
+@router.post("/configs/seed-defaults")
+async def seed_default_report_configs(
+    user: UserContext = Depends(get_current_writer),
+):
+    """Seed the 5 standard report configs (Phase 2 step 12).
+
+    Skips configs that already exist — idempotent.
+    """
+    inserted = []
+    skipped = []
+    now = datetime.now().isoformat()
+
+    for cfg in report_engine.default_configs():
+        existing = query(
+            "SELECT id FROM sale_report_configs WHERE report_name = ?",
+            [cfg["name"]], one=True,
+        )
+        if existing:
+            skipped.append(cfg["name"])
+            continue
+
+        config_id = str(uuid.uuid4())
+        execute(
+            """
+            INSERT INTO sale_report_configs
+                (id, report_name, report_type, description,
+                 schedule_cron, schedule_type, template_format,
+                 filters_json, is_active, created_by,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'MANUAL', 'XLSX', ?, 1, ?, ?, ?)
+            """,
+            [
+                config_id, cfg["name"], cfg["report_type"], cfg["description"],
+                cfg.get("schedule_cron"),
+                json.dumps(cfg.get("filters") or {}),
+                user.actor, now, now,
+            ],
+        )
+        inserted.append({
+            "id": config_id,
+            "report_name": cfg["name"],
+            "report_type": cfg["report_type"],
+        })
+
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "summary": f"{len(inserted)} created, {len(skipped)} already existed",
+    }
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -37,10 +37,11 @@ router = APIRouter(prefix="/contacts", tags=["Contacts"])
 async def list_contacts(
     customer_id: Optional[str] = Query(None, description="Filter by customer"),
     is_primary: Optional[bool] = Query(None),
+    search: Optional[str] = Query(None, description="Search name/email/phone"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """List customer contacts with optional customer filter."""
+    """List customer contacts with optional customer filter + free-text search."""
     where = []
     params: list = []
     if customer_id:
@@ -49,6 +50,16 @@ async def list_contacts(
     if is_primary is not None:
         where.append("ct.is_primary = ?")
         params.append(1 if is_primary else 0)
+    if search:
+        # LIKE-based search across name/email/phone — uses indexes when
+        # the term is a prefix; full-text would be a Phase 3 upgrade.
+        like = f"%{search}%"
+        where.append(
+            "(ct.name LIKE ? OR ct.email LIKE ? OR ct.phone LIKE ?)"
+        )
+        params.extend([like, like, like])
+    # Hide soft-deleted contacts by default.
+    where.append("(ct.status IS NULL OR ct.status != 'DELETED')")
     where_sql = " AND ".join(where) if where else "1=1"
 
     total = query(
