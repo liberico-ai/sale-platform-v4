@@ -111,6 +111,13 @@ ENABLE_EMAIL_SYNC = os.getenv("ENABLE_EMAIL_SYNC", "true").lower() == "true"
 ENABLE_PM_INTEGRATION = os.getenv("ENABLE_PM_INTEGRATION", "true").lower() == "true"
 ENABLE_TASK_SCHEDULING = os.getenv("ENABLE_TASK_SCHEDULING", "true").lower() == "true"
 
+# Auto-load seed data on startup if the DB is under-populated (sqlite only).
+# Runs the sql_import/*.sql pipeline when fewer than 50 customers AND fewer
+# than 10 opportunities exist. Tables are cleared first so re-runs don't
+# collide on UNIQUE constraints. Set to "false" to disable on environments
+# that manage their own data.
+AUTO_LOAD_SEED_DATA = os.getenv("AUTO_LOAD_SEED_DATA", "true").lower() == "true"
+
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 

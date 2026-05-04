@@ -32,6 +32,39 @@ _pg_pool = None
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 _SQLITE_SCHEMA = os.path.join(_PROJECT_ROOT, "sql_import", "schema_all.sql")
 _PG_SCHEMA = os.path.join(_PROJECT_ROOT, "schema_pg.sql")
+_SEED_SQL_DIR = os.path.join(_PROJECT_ROOT, "sql_import")
+
+# Seed data import order — mirrors sql_import/build_db.py IMPORT_FILES,
+# excluding schema_all.sql (run separately) and 99_import_log.sql.
+_SEED_DATA_FILES = [
+    "01_customers.sql",
+    "02_opportunities.sql",
+    "02b_active_contracts.sql",
+    "03_contract_milestones.sql",
+    "04_settlements.sql",
+    "05_vogt_pipeline.sql",
+    "06_nas_file_links.sql",
+    "07_quotation_revisions.sql",
+    "08_contract_files.sql",
+    "09_digital_content.sql",
+    "10_product_opportunities.sql",
+    "11_emails.sql",
+    "12_customer_interactions.sql",
+    "13_market_signals.sql",
+    "14_mbox_customers.sql",
+    "15_customer_contacts.sql",
+    "16_email_stats.sql",
+    "17_quotation_enrichment.sql",
+    "18_qr_customers.sql",
+    "19_won_contracts.sql",
+    "20_email_2026_quotations.sql",
+    "21_email_active_contracts.sql",
+    "22_email_customer_labels.sql",
+    "23_full_email_mapping.sql",
+    "24_client_database.sql",
+    "25_client_visits.sql",
+    "99_import_log.sql",
+]
 
 
 def _get_pg_pool():
@@ -324,10 +357,78 @@ def _create_audit_table_pg(cursor):
     """)
 
 
-def init_db() -> bool:
-    """Initialize database: connect, verify, and auto-create schema if needed.
+def _load_seed_data_sqlite(conn) -> None:
+    """Wipe sale_* tables, then run sql_import/*.sql to populate the DB.
 
-    For SQLite: Runs schema.sql if database file is empty/new.
+    Only invoked from init_db() after the gate check confirms the DB is
+    under-populated. Wiping first guarantees a clean slate so re-runs don't
+    fail on UNIQUE-constraint conflicts with stale rows (e.g. a partially
+    seeded DB from an earlier broken deploy).
+
+    FK enforcement is disabled during the wipe + load (mirrors
+    sql_import/build_db.py) because the bulk-insert files don't strictly
+    maintain insertion order across FK boundaries.
+
+    Errors are logged per-file and do not abort the rest.
+    """
+    # Toggling foreign_keys requires no open transaction
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    cleared = 0
+    loaded = 0
+    failed = []
+    try:
+        # Wipe all sale_* tables (including audit_log — fresh seed = fresh audit)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'sale_%'"
+        )
+        tables = [r[0] for r in cursor.fetchall()]
+        cursor.close()
+        for t in tables:
+            try:
+                conn.execute(f"DELETE FROM {t}")
+                cleared += 1
+            except Exception as e:
+                logger.warning("seed_table_clear_failed",
+                               table=t, error=str(e)[:200])
+        conn.commit()
+        logger.info("seed_tables_cleared", count=cleared, total=len(tables))
+
+        # Load seed files in order
+        for fname in _SEED_DATA_FILES:
+            fpath = os.path.join(_SEED_SQL_DIR, fname)
+            if not os.path.exists(fpath):
+                logger.warning("seed_file_missing", file=fname)
+                continue
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    sql = "".join(
+                        line for line in f if not line.lstrip().startswith(".")
+                    )
+                conn.executescript(sql)
+                loaded += 1
+            except Exception as e:
+                failed.append((fname, str(e)[:200]))
+                logger.error("seed_file_failed", file=fname, error=str(e)[:200])
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    logger.info(
+        "seed_data_load_complete",
+        files_loaded=loaded,
+        files_failed=len(failed),
+    )
+
+
+def init_db() -> bool:
+    """Initialize database: apply schema, optionally load seed data.
+
+    For SQLite:
+      - Always runs schema_all.sql (CREATE TABLE IF NOT EXISTS is idempotent),
+        so new tables added to the schema appear in existing DBs on restart.
+      - If AUTO_LOAD_SEED_DATA=true and sale_opportunities is empty, runs the
+        sql_import/*.sql data pipeline once.
     For PostgreSQL: Verifies connectivity (schema must be created manually).
 
     Returns:
@@ -337,29 +438,74 @@ def init_db() -> bool:
         conn = get_db_connection()
 
         if config.DB_TYPE == "sqlite":
-            # Check if tables exist
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='sale_customers'"
-            )
-            tables_exist = cursor.fetchone() is not None
-            cursor.close()
-
-            if not tables_exist:
-                # Auto-create schema from schema.sql
-                if os.path.exists(_SQLITE_SCHEMA):
-                    with open(_SQLITE_SCHEMA, "r") as f:
-                        schema_sql = f.read()
-                    conn.executescript(schema_sql)
-                    conn.commit()
-                    logger.info("sqlite_schema_created", schema_file=_SQLITE_SCHEMA)
-                else:
-                    logger.warning("sqlite_schema_missing",
-                                   expected_path=_SQLITE_SCHEMA)
+            # Always apply schema. CREATE TABLE/INDEX/VIEW use IF NOT EXISTS
+            # so they're idempotent. ALTER TABLE ADD COLUMN doesn't support
+            # IF NOT EXISTS in older SQLite — on re-run it raises 'duplicate
+            # column name'. We split the schema into individual statements
+            # using sqlite3.complete_statement (handles strings, comments,
+            # multi-line SQL correctly) so we can swallow that one benign
+            # error per-ALTER without aborting the rest.
+            if os.path.exists(_SQLITE_SCHEMA):
+                with open(_SQLITE_SCHEMA, "r") as f:
+                    schema_sql = f.read()
+                statements = []
+                buf = ""
+                for line in schema_sql.splitlines():
+                    buf += line + "\n"
+                    if sqlite3.complete_statement(buf):
+                        stmt = buf.strip()
+                        if stmt:
+                            statements.append(stmt)
+                        buf = ""
+                if buf.strip():
+                    statements.append(buf.strip())
+                applied = 0
+                skipped = 0
+                for stmt in statements:
+                    try:
+                        conn.execute(stmt)
+                        applied += 1
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column name" in str(e).lower():
+                            skipped += 1
+                            continue
+                        raise
+                conn.commit()
+                logger.info("sqlite_schema_applied",
+                            schema_file=_SQLITE_SCHEMA,
+                            applied=applied, skipped=skipped)
+            else:
+                logger.warning("sqlite_schema_missing",
+                               expected_path=_SQLITE_SCHEMA)
 
             # Always ensure audit_log table exists
             _create_audit_table_sqlite(conn)
             conn.commit()
+
+            # Auto-load seed data if enabled AND the DB is under-populated.
+            # Two-marker gate (customers AND opportunities) so it passes for
+            # fresh/broken deploys but fails for any meaningfully populated DB.
+            if config.AUTO_LOAD_SEED_DATA:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM sale_customers")
+                    customer_count = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) FROM sale_opportunities")
+                    opp_count = cursor.fetchone()[0]
+                finally:
+                    cursor.close()
+                needs_seed = customer_count < 50 and opp_count < 10
+                if needs_seed:
+                    logger.info("seed_data_loading",
+                                reason="db_under_populated",
+                                customers=customer_count,
+                                opportunities=opp_count)
+                    _load_seed_data_sqlite(conn)
+                else:
+                    logger.info("seed_data_skipped",
+                                reason="db_populated",
+                                customers=customer_count,
+                                opportunities=opp_count)
 
         else:  # postgresql
             with get_cursor() as cursor:
