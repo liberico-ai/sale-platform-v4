@@ -214,6 +214,23 @@ Verify: 32 tables, ~6,700 records, 0 integrity errors.
 3. Update models/ to match all 32 tables in schema_all.sql
 4. Update dashboard.py to query across all populated tables
 
+### ★ UNIFIED COMMAND (ĐỌC FILE NÀY ĐẦU TIÊN):
+- **UNIFIED_CLAUDE_CODE_COMMAND.md** — Lệnh DUY NHẤT hợp nhất tất cả fixes. 18 bước, ~65h. **PASTE VÀO CLAUDE CODE.**
+
+### Reference docs (đã merge vào UNIFIED, ĐỌC NẾU CẦN CHI TIẾT):
+- CROSS_CUTTING_DESIGN.md — 10 patterns đồng bộ xuyên suốt
+- FUNCTIONAL_COMPLETENESS_AUDIT.md — Gap analysis chức năng (updated 03/05/2026)
+- SALE_PLATFORM_MASTER_FIX.md — Align code ↔ DB schema + 3 câu hỏi tích hợp
+
+### Cross-cutting rules (bổ sung rules 16-20):
+16. KHÔNG define Pydantic model inline trong router — import từ models/
+17. TẤT CẢ status/stage/type dùng Enum (models/enums.py)
+18. TẤT CẢ list endpoints dùng standard pagination {total, items, limit, offset}
+19. TẤT CẢ write endpoints pass user_id vào audit_log changed_by
+20. TẤT CẢ date SQL dùng dialect helpers (now_expr, date_diff_expr)
+
+### Thứ tự: Chạy UNIFIED_CLAUDE_CODE_COMMAND.md (18 bước theo thứ tự)
+
 ### For detailed sprint plan: see SPRINT1_PLAN.md
 ### For full NAS gap analysis + module roadmap: see SPRINT1_PLAN.md (NAS Business Process Map section)
 ### Reference: docs/Sale_Platform_v4_Gap_Analysis_28Apr2026.docx — 13 NAS business functions, 31% coverage, 5-phase roadmap
