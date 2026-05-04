@@ -135,8 +135,8 @@
   #modal.open { display: flex; }
   #modal .box {
     background: var(--bg-elev); border: 1px solid var(--border);
-    border-radius: 8px; padding: 24px; max-width: 720px; max-height: 80vh;
-    overflow: auto; width: 90%;
+    border-radius: 8px; padding: 24px; max-width: 920px; max-height: 88vh;
+    overflow: auto; width: 92%;
   }
   .form-row { margin-bottom: 12px; }
   .form-row label { display: block; font-size: 12px; color: var(--text-mute); margin-bottom: 4px; }
@@ -157,6 +157,93 @@
     display: inline-block; min-width: 70px; font-size: 10px;
     color: var(--text-mute); text-transform: uppercase;
   }
+
+  /* Tabs (Phase 2 — customer 360 / contract detail) */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tabs button {
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 8px 16px; color: var(--text-mute); font-weight: 500;
+  }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Kanban drag-drop */
+  .kanban { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; min-height: 500px; }
+  .kanban .col {
+    background: var(--bg-elev); border-radius: 6px; padding: 8px;
+    transition: background 0.15s;
+  }
+  .kanban .col.drag-over { background: var(--bg-elev-2); outline: 2px dashed var(--accent); }
+  .kanban .col h3 { font-size: 12px; margin: 4px 0 8px; padding: 0 4px; display: flex; justify-content: space-between; }
+  .kanban .item {
+    background: var(--bg-elev-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px; margin-bottom: 6px; font-size: 12px;
+    cursor: grab; user-select: none;
+  }
+  .kanban .item:hover { border-color: var(--accent); }
+  .kanban .item.dragging { opacity: 0.4; cursor: grabbing; }
+  .kanban .item .priority { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+  .kanban .item .priority.HIGH, .kanban .item .priority.URGENT { background: var(--crit); }
+  .kanban .item .priority.NORMAL { background: var(--accent); }
+  .kanban .item .priority.LOW { background: var(--text-mute); }
+
+  /* 3-panel email layout */
+  .three-pane { display: grid; grid-template-columns: 200px 360px 1fr; gap: 12px; height: calc(100vh - 180px); }
+  .three-pane > div { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow: auto; }
+  .email-row { padding: 8px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 12px; }
+  .email-row:hover { background: var(--bg-elev-2); }
+  .email-row.active { background: var(--bg-elev-2); border-left: 3px solid var(--accent); padding-left: 5px; }
+  .email-row.unread { font-weight: 600; }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 200;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast {
+    background: var(--bg-elev-2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 6px;
+    padding: 10px 16px; min-width: 240px; font-size: 13px;
+    animation: slideIn 0.2s ease-out;
+  }
+  .toast.ok { border-left-color: var(--ok); }
+  .toast.warn { border-left-color: var(--warn); }
+  .toast.err { border-left-color: var(--crit); }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* Stage transition buttons (Pipeline) */
+  .stage-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+  .stage-buttons button {
+    font-size: 11px; padding: 4px 10px; text-transform: uppercase;
+  }
+
+  /* Notification dropdown */
+  .notif-dropdown {
+    position: absolute; top: 48px; right: 80px; width: 360px; max-height: 480px;
+    overflow: auto; background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); display: none; z-index: 50;
+  }
+  .notif-dropdown.open { display: block; }
+  .notif-dropdown .notif-item { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .notif-dropdown .notif-item:hover { background: var(--bg-elev-2); }
+  .notif-dropdown .notif-item.unread { background: rgba(47,129,247,0.05); }
+
+  /* Breadcrumb */
+  .breadcrumb { color: var(--text-mute); font-size: 12px; margin-bottom: 8px; }
+  .breadcrumb a { color: var(--text-mute); }
+  .breadcrumb a:hover { color: var(--text); }
+  .breadcrumb .sep { margin: 0 6px; }
+
+  /* Skeleton loading */
+  .skel { background: linear-gradient(90deg, var(--bg-elev) 25%, var(--bg-elev-2) 50%, var(--bg-elev) 75%);
+          background-size: 200% 100%; animation: skel 1.2s infinite; height: 14px; border-radius: 4px; margin: 6px 0; }
+  @keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* Clickable KPI cards (dashboard drill-down) */
+  .card.clickable { cursor: pointer; transition: border-color 0.15s, transform 0.05s; }
+  .card.clickable:hover { border-color: var(--accent); }
+  .card.clickable:active { transform: translateY(1px); }
 </style>
 </head>
 <body>
@@ -188,6 +275,9 @@
       <a href="#pipeline" data-screen="pipeline">Pipeline</a>
       <a href="#quotations" data-screen="quotations">Quotations</a>
       <a href="#tasks" data-screen="tasks">Tasks</a>
+      <a href="#emails" data-screen="emails">Emails</a>
+      <a href="#contracts" data-screen="contracts">Contracts</a>
+      <a href="#reports" data-screen="reports">Reports</a>
       <a href="#search" data-screen="search">Search</a>
     </nav>
   </aside>
@@ -214,6 +304,12 @@
 <div id="modal" onclick="if(event.target===this)closeModal()">
   <div class="box" id="modal-box"></div>
 </div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- NOTIFICATION DROPDOWN -->
+<div id="notif-dropdown" class="notif-dropdown"></div>
 
 <script>
 'use strict';
@@ -344,18 +440,51 @@ async function refreshNotificationBell() {
   } catch {}
 }
 
+// ─── Toast notifications (Phase 2) ────────────────────────────────
+function toast(message, kind = 'info', ms = 3000) {
+  const wrap = document.getElementById('toast');
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.textContent = message;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+
+// ─── Tabs (Phase 2 — used in customer 360, contract detail) ──────
+function activateTab(modalRoot, tabName) {
+  modalRoot.querySelectorAll('.tabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tabName);
+  });
+  modalRoot.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.dataset.tab === tabName);
+  });
+}
+
+// ─── Breadcrumb (Phase 2 — for detail modals) ────────────────────
+function breadcrumb(parts) {
+  return '<div class="breadcrumb">' +
+    parts.map((p, i) => i === parts.length - 1
+      ? `<b>${escapeHtml(p.label)}</b>`
+      : `<a href="#${p.href}" onclick="closeModal();return true">${escapeHtml(p.label)}</a><span class="sep">›</span>`
+    ).join('') +
+    '</div>';
+}
+
 // ─── Routing ─────────────────────────────────────────────────────────
 const SCREENS = {};
 function navigate(name) {
+  // Strip query params from screen name (e.g. "search?q=foo" -> "search")
+  const screenName = name.split('?')[0].split('/')[0];
   // highlight nav
   document.querySelectorAll('#sidebar nav a').forEach(a => {
-    a.classList.toggle('active', a.dataset.screen === name);
+    a.classList.toggle('active', a.dataset.screen === screenName);
   });
-  const fn = SCREENS[name] || SCREENS.dashboard;
+  const fn = SCREENS[screenName] || SCREENS.dashboard;
   const c = document.getElementById('content');
-  c.innerHTML = '<p class="muted">Loading…</p>';
+  c.innerHTML = '<div class="skel" style="width:200px"></div><div class="skel" style="width:80%"></div><div class="skel"></div>';
   Promise.resolve(fn()).then(html => { c.innerHTML = html; }).catch(e => {
     c.innerHTML = `<div class="card"><h3>Error</h3><p>${escapeHtml(e.message)}</p></div>`;
+    toast(e.message || 'Request failed', 'err');
   });
 }
 
@@ -368,7 +497,7 @@ function closeModal() {
   document.getElementById('modal').classList.remove('open');
 }
 
-// ─── Screen 1: Dashboard ────────────────────────────────────────────
+// ─── Screen 1: Dashboard (B18: clickable KPIs drill-down) ─────────
 SCREENS.dashboard = async function() {
   const d = await api('/dashboard/summary');
   const t = d.totals || {};
@@ -376,29 +505,33 @@ SCREENS.dashboard = async function() {
   const q = d.quotations || {};
   const m = d.milestones || {};
   const f = d.follow_ups || {};
+  const dw = d.date_window || {};
   const stages = (d.pipeline && d.pipeline.by_stage) || [];
   return `
     <h1>Dashboard <span class="muted" style="font-size:13px;font-weight:normal">FY ${escapeHtml(d.fiscal_year)}</span></h1>
+    ${dw.from ? `<p class="muted">Window: ${escapeHtml(dw.from)} → ${escapeHtml(dw.to)} · ${dw.new_opportunities || 0} new opportunities · ${fmt(dw.new_pipeline_value_usd, '$')} new pipeline value</p>` : ''}
     <div class="grid grid-4">
-      <div class="card"><h3>Customers</h3><div class="big">${t.customers||0}</div><div class="sub">${t.contacts||0} contacts</div></div>
-      <div class="card"><h3>Opportunities</h3><div class="big">${t.opportunities||0}</div><div class="sub">${fmt(d.pipeline?.weighted_value_usd, '$')} weighted</div></div>
-      <div class="card"><h3>Quotations</h3><div class="big">${t.quotations||0}</div><div class="sub">${q.win_rate_pct||0}% win rate · ${q.won||0} won</div></div>
-      <div class="card"><h3>Active Contracts</h3><div class="big">${t.contracts||0}</div><div class="sub">${m.total||0} milestones, ${m.overdue||0} overdue</div></div>
+      <div class="card clickable" onclick="navigate('customers')"><h3>Customers</h3><div class="big">${t.customers||0}</div><div class="sub">${t.contacts||0} contacts</div></div>
+      <div class="card clickable" onclick="navigate('pipeline')"><h3>Opportunities</h3><div class="big">${t.opportunities||0}</div><div class="sub">${fmt(d.pipeline?.weighted_value_usd, '$')} weighted</div></div>
+      <div class="card clickable" onclick="navigate('quotations')"><h3>Quotations</h3><div class="big">${t.quotations||0}</div><div class="sub">${q.win_rate_pct||0}% win rate · ${q.won||0} won</div></div>
+      <div class="card clickable" onclick="navigate('contracts')"><h3>Active Contracts</h3><div class="big">${t.contracts||0}</div><div class="sub">${m.total||0} milestones, ${m.overdue||0} overdue</div></div>
     </div>
     <div class="grid grid-4" style="margin-top:12px">
       <div class="card"><h3>KHKD Coverage</h3><div class="big">${k.coverage_pct||0}%</div><div class="sub">target ${fmt(k.total_revenue,'$')}</div></div>
-      <div class="card"><h3>Tasks</h3><div class="big">${(d.tasks||{}).total||0}</div><div class="sub">${(d.tasks||{}).overdue||0} overdue, ${(d.tasks||{}).pending||0} pending</div></div>
-      <div class="card"><h3>Follow-ups</h3><div class="big">${f.total||0}</div><div class="sub">${f.overdue||0} overdue, ${f.due_today||0} today</div></div>
-      <div class="card"><h3>Notifications</h3><div class="big">${(d.notifications||{}).unread||0}</div><div class="sub">${(d.notifications||{}).total||0} total</div></div>
+      <div class="card clickable" onclick="location.hash='#tasks?filter=overdue'"><h3>Tasks</h3><div class="big">${(d.tasks||{}).total||0}</div><div class="sub">${(d.tasks||{}).overdue||0} overdue, ${(d.tasks||{}).pending||0} pending</div></div>
+      <div class="card clickable" onclick="navigate('my')"><h3>Follow-ups</h3><div class="big">${f.total||0}</div><div class="sub">${f.overdue||0} overdue, ${f.due_today||0} today</div></div>
+      <div class="card clickable" onclick="navigate('notifications')"><h3>Notifications</h3><div class="big">${(d.notifications||{}).unread||0}</div><div class="sub">${(d.notifications||{}).total||0} total</div></div>
     </div>
     <h2>Pipeline by Stage</h2>
     <table>
       <thead><tr><th>Stage</th><th class="right">Count</th><th class="right">Value (USD)</th></tr></thead>
       <tbody>
       ${stages.map(s => `
-        <tr><td>${statusPill(s.stage)}</td>
-            <td class="right">${s.count}</td>
-            <td class="right">${fmt(s.total_value,'$')}</td></tr>
+        <tr style="cursor:pointer" onclick="location.hash='#pipeline?stage=${escapeHtml(s.stage)}'">
+          <td>${statusPill(s.stage)}</td>
+          <td class="right">${s.count}</td>
+          <td class="right">${fmt(s.total_value,'$')}</td>
+        </tr>
       `).join('')}
       </tbody>
     </table>
@@ -478,41 +611,247 @@ function customerTable(items) {
 function _html(s) { const t = document.createElement('template'); t.innerHTML = s.trim(); return t.content.firstChild; }
 
 async function openCustomer(id) {
+  // B13: Customer 360° — tabs Info / Contacts / Opps / Quotations / Timeline / Follow-ups
   const d = await api('/customers/' + id);
   const c = d.customer;
+  window._currentCustomer = c;  // for inline edits
+
   openModal(`
+    ${breadcrumb([{label: 'Customers', href: 'customers'}, {label: c.name}])}
     <h2 style="margin-top:0">${escapeHtml(c.name)} <small class="muted">${escapeHtml(c.code||'')}</small></h2>
-    <div class="grid grid-2">
-      <div><b class="muted">Country:</b> ${escapeHtml(c.country||'—')}</div>
-      <div><b class="muted">Region:</b> ${escapeHtml(c.region||'—')}</div>
-      <div><b class="muted">Status:</b> ${statusPill(c.status||'')}</div>
-      <div><b class="muted">Website:</b> ${escapeHtml(c.website||'—')}</div>
+
+    <div class="tabs" id="cust-tabs">
+      <button class="active" data-tab="info" onclick="activateTab(document.getElementById('modal-box'),'info')">Info</button>
+      <button data-tab="contacts" onclick="activateTab(document.getElementById('modal-box'),'contacts')">Contacts (${(d.contacts||[]).length})</button>
+      <button data-tab="opps" onclick="activateTab(document.getElementById('modal-box'),'opps')">Opportunities (${(d.opportunities||[]).length})</button>
+      <button data-tab="quotes" onclick="activateTab(document.getElementById('modal-box'),'quotes');loadCustomerQuotations('${c.id}')">Quotations</button>
+      <button data-tab="timeline" onclick="activateTab(document.getElementById('modal-box'),'timeline');loadCustomerTimeline('${c.id}')">Timeline</button>
+      <button data-tab="followups" onclick="activateTab(document.getElementById('modal-box'),'followups')">Follow-ups</button>
     </div>
-    <h3>Contacts (${(d.contacts||[]).length})</h3>
-    <table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Position</th></tr></thead>
-    <tbody>${(d.contacts||[]).slice(0,8).map(ct => `<tr>
-      <td>${escapeHtml(ct.name||'')}</td><td>${escapeHtml(ct.email||'')}</td>
-      <td>${escapeHtml(ct.phone||'')}</td><td>${escapeHtml(ct.position||'')}</td>
-    </tr>`).join('') || '<tr><td colspan=4 class="empty">No contacts</td></tr>'}</tbody></table>
-    <h3>Opportunities (${(d.opportunities||[]).length})</h3>
-    <table><thead><tr><th>Project</th><th>Stage</th><th>Value</th></tr></thead><tbody>
-    ${(d.opportunities||[]).slice(0,8).map(o => `<tr>
-      <td>${escapeHtml(o.project_name||'')}</td>
-      <td>${statusPill(o.stage||'')}</td>
-      <td class="right">${fmt(o.contract_value_usd, '$')}</td></tr>`).join('') || '<tr><td colspan=3 class="empty">No opportunities</td></tr>'}
-    </tbody></table>
-    <h3>Recent Interactions</h3>
-    ${(d.interactions||[]).length ? `<table><tbody>
-      ${(d.interactions||[]).slice(0,5).map(i => `<tr>
-        <td>${escapeHtml(i.interaction_date||'')}</td>
-        <td>${pill(i.interaction_type||'', 'info')}</td>
-        <td>${escapeHtml(i.subject||'')}</td>
-      </tr>`).join('')}
-    </tbody></table>` : '<div class="empty">No interactions logged.</div>'}
+
+    <!-- Tab: Info (editable) -->
+    <div class="tab-panel active" data-tab="info">
+      <div class="grid grid-2">
+        <div class="form-row"><label>Name</label><input id="ci-name" value="${escapeHtml(c.name||'')}" /></div>
+        <div class="form-row"><label>Code</label><input id="ci-code" value="${escapeHtml(c.code||'')}" /></div>
+        <div class="form-row"><label>Country</label><input id="ci-country" value="${escapeHtml(c.country||'')}" /></div>
+        <div class="form-row"><label>Region</label><input id="ci-region" value="${escapeHtml(c.region||'')}" /></div>
+        <div class="form-row"><label>Status</label>
+          <select id="ci-status">
+            <option ${c.status==='ACTIVE'?'selected':''}>ACTIVE</option>
+            <option ${c.status==='INACTIVE'?'selected':''}>INACTIVE</option>
+          </select></div>
+        <div class="form-row"><label>Website</label><input id="ci-website" value="${escapeHtml(c.website||'')}" /></div>
+      </div>
+      <div class="form-row"><label>Business Description</label><textarea id="ci-desc">${escapeHtml(c.business_description||'')}</textarea></div>
+      <div style="text-align:right;margin-top:12px">
+        <button onclick="addInteractionModal('${c.id}')">+ Log Interaction</button>
+        <button class="primary" onclick="saveCustomer('${c.id}')">Save changes</button>
+      </div>
+    </div>
+
+    <!-- Tab: Contacts -->
+    <div class="tab-panel" data-tab="contacts">
+      <div class="toolbar">
+        <button class="primary" onclick="addContactModal('${c.id}')">+ Add Contact</button>
+      </div>
+      <table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Position</th><th>Primary</th></tr></thead>
+      <tbody>${(d.contacts||[]).map(ct => `<tr>
+        <td>${escapeHtml(ct.name||'')}</td>
+        <td>${escapeHtml(ct.email||'')}</td>
+        <td>${escapeHtml(ct.phone||'')}</td>
+        <td>${escapeHtml(ct.position||'')}</td>
+        <td>${ct.is_primary ? statusPill('PRIMARY') : ''}</td>
+      </tr>`).join('') || '<tr><td colspan=5 class="empty">No contacts</td></tr>'}</tbody></table>
+    </div>
+
+    <!-- Tab: Opportunities -->
+    <div class="tab-panel" data-tab="opps">
+      <table><thead><tr><th>Project</th><th>Stage</th><th>Group</th><th class="right">Value</th><th class="right">Win%</th></tr></thead><tbody>
+      ${(d.opportunities||[]).map(o => `<tr style="cursor:pointer" onclick="closeModal();setTimeout(()=>openOpportunity('${o.id}'),50)">
+        <td>${escapeHtml(o.project_name||'')}</td>
+        <td>${statusPill(o.stage||'')}</td>
+        <td>${escapeHtml(o.product_group||'')}</td>
+        <td class="right">${fmt(o.contract_value_usd, '$')}</td>
+        <td class="right">${o.win_probability||0}%</td>
+      </tr>`).join('') || '<tr><td colspan=5 class="empty">No opportunities</td></tr>'}
+      </tbody></table>
+    </div>
+
+    <!-- Tab: Quotations -->
+    <div class="tab-panel" data-tab="quotes">
+      <div id="cust-quotes-body"><div class="skel"></div></div>
+    </div>
+
+    <!-- Tab: Timeline -->
+    <div class="tab-panel" data-tab="timeline">
+      <div id="cust-timeline-body"><div class="skel"></div></div>
+    </div>
+
+    <!-- Tab: Follow-ups -->
+    <div class="tab-panel" data-tab="followups">
+      <div class="toolbar">
+        <button class="primary" onclick="addFollowUpModal('${c.id}')">+ Add Follow-up</button>
+      </div>
+      <p class="muted">Open the related opportunity to see its follow-ups, or add a new one above.</p>
+    </div>
+
     <div style="margin-top:16px;text-align:right">
       <button onclick="closeModal()">Close</button>
     </div>
   `);
+}
+
+async function loadCustomerQuotations(custId) {
+  const target = document.getElementById('cust-quotes-body');
+  if (!target || target.dataset.loaded) return;
+  try {
+    const d = await api('/quotations?customer_id=' + custId + '&limit=50');
+    target.dataset.loaded = '1';
+    if (!(d.items||[]).length) { target.innerHTML = '<div class="empty">No quotations.</div>'; return; }
+    target.innerHTML = `<table><thead><tr><th>#</th><th>Project</th><th>Status</th><th class="right">Value</th><th>Date</th></tr></thead><tbody>
+      ${d.items.map(q => `<tr style="cursor:pointer" onclick="closeModal();setTimeout(()=>openQuotation('${q.id}'),50)">
+        <td>${q.quotation_no}</td>
+        <td>${escapeHtml(q.project_name||'')}</td>
+        <td>${statusPill(q.status||'')}</td>
+        <td class="right">${fmt(q.value_usd, '$')}</td>
+        <td>${escapeHtml(q.date_offer||'')}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  } catch(e) { target.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; }
+}
+
+async function loadCustomerTimeline(custId) {
+  const target = document.getElementById('cust-timeline-body');
+  if (!target || target.dataset.loaded) return;
+  try {
+    const d = await api('/customers/' + custId + '/timeline?limit=50');
+    target.dataset.loaded = '1';
+    if (!(d.items||[]).length) { target.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
+    target.innerHTML = `<p class="muted">${d.total} events</p>
+      <table><tbody>
+      ${d.items.map(e => `<tr>
+        <td style="width:90px;color:var(--text-mute)">${escapeHtml((e.event_date||'').slice(0,10))}</td>
+        <td>${pill(e.event_type||'', 'info')}</td>
+        <td><b>${escapeHtml(e.title||'')}</b><div class="muted" style="font-size:11px">${escapeHtml((e.description||'').slice(0,160))}</div></td>
+      </tr>`).join('')}
+      </tbody></table>`;
+  } catch(e) { target.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`; }
+}
+
+async function saveCustomer(id) {
+  try {
+    await api('/customers/' + id, {
+      method: 'PATCH',
+      body: {
+        name: document.getElementById('ci-name').value.trim() || null,
+        code: document.getElementById('ci-code').value.trim() || null,
+        country: document.getElementById('ci-country').value.trim() || null,
+        region: document.getElementById('ci-region').value.trim() || null,
+        status: document.getElementById('ci-status').value,
+        website: document.getElementById('ci-website').value.trim() || null,
+        business_description: document.getElementById('ci-desc').value.trim() || null,
+      },
+    });
+    toast('Customer saved', 'ok');
+    closeModal();
+    navigate('customers');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function addContactModal(customerId) {
+  openModal(`
+    <h2 style="margin-top:0">New Contact</h2>
+    <div class="form-row"><label>Name *</label><input id="nct-name" /></div>
+    <div class="form-row"><label>Email</label><input id="nct-email" /></div>
+    <div class="form-row"><label>Phone</label><input id="nct-phone" /></div>
+    <div class="form-row"><label>Position</label><input id="nct-position" /></div>
+    <div class="form-row"><label><input id="nct-primary" type="checkbox" style="width:auto"> Primary contact</label></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitContact('${customerId}')">Create</button>
+    </div>
+  `);
+}
+async function submitContact(customerId) {
+  const name = document.getElementById('nct-name').value.trim();
+  if (!name) { toast('Name required', 'err'); return; }
+  try {
+    await api('/contacts', { method: 'POST', body: {
+      customer_id: customerId, name,
+      email: document.getElementById('nct-email').value.trim() || null,
+      phone: document.getElementById('nct-phone').value.trim() || null,
+      position: document.getElementById('nct-position').value.trim() || null,
+      is_primary: document.getElementById('nct-primary').checked,
+    }});
+    toast('Contact created', 'ok');
+    closeModal();
+    setTimeout(() => openCustomer(customerId), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function addInteractionModal(customerId) {
+  openModal(`
+    <h2 style="margin-top:0">Log Interaction</h2>
+    <div class="form-row"><label>Type *</label>
+      <select id="ni-type"><option>CALL</option><option>EMAIL</option><option>VISIT</option><option>MEETING</option></select></div>
+    <div class="form-row"><label>Subject *</label><input id="ni-subject" /></div>
+    <div class="form-row"><label>Date</label><input id="ni-date" type="date" /></div>
+    <div class="form-row"><label>Summary</label><textarea id="ni-summary"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitInteraction('${customerId}')">Save</button>
+    </div>
+  `);
+  // Default date = today
+  document.getElementById('ni-date').value = new Date().toISOString().slice(0, 10);
+}
+async function submitInteraction(customerId) {
+  const subject = document.getElementById('ni-subject').value.trim();
+  if (!subject) { toast('Subject required', 'err'); return; }
+  try {
+    await api('/interactions', { method: 'POST', body: {
+      customer_id: customerId,
+      interaction_type: document.getElementById('ni-type').value,
+      subject,
+      summary: document.getElementById('ni-summary').value.trim() || null,
+      interaction_date: document.getElementById('ni-date').value || new Date().toISOString().slice(0,10),
+    }});
+    toast('Interaction logged', 'ok');
+    closeModal();
+    setTimeout(() => openCustomer(customerId), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function addFollowUpModal(customerId) {
+  openModal(`
+    <h2 style="margin-top:0">New Follow-up</h2>
+    <p class="muted">Pick the opportunity this follow-up tracks. Customer-only follow-ups are a Phase 3 feature (DB constraint).</p>
+    <div class="form-row"><label>Opportunity ID *</label><input id="nf-oppid" placeholder="UUID from Pipeline" /></div>
+    <div class="form-row"><label>Type *</label>
+      <select id="nf-type"><option>CALL</option><option>EMAIL</option><option>VISIT</option><option>MEETING</option></select></div>
+    <div class="form-row"><label>Next follow-up *</label><input id="nf-when" type="datetime-local" /></div>
+    <div class="form-row"><label>Notes</label><textarea id="nf-notes"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitFollowUp('${customerId}')">Schedule</button>
+    </div>
+  `);
+}
+async function submitFollowUp(customerId) {
+  const oppId = document.getElementById('nf-oppid').value.trim();
+  const when = document.getElementById('nf-when').value;
+  if (!oppId || !when) { toast('Opportunity ID and date required', 'err'); return; }
+  try {
+    await api('/customers/' + customerId + '/create-follow-up', { method: 'POST', body: {
+      opportunity_id: oppId,
+      schedule_type: document.getElementById('nf-type').value,
+      next_follow_up: when,
+      notes: document.getElementById('nf-notes').value.trim() || null,
+    }});
+    toast('Follow-up scheduled', 'ok');
+    closeModal();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 function customerCreateModal() {
@@ -552,11 +891,38 @@ async function submitNewCustomer() {
   }
 }
 
-// ─── Screen 4: Pipeline ──────────────────────────────────────────────
+// ─── Screen 4: Pipeline (B14: filters + create + stage buttons) ───
+const PRODUCT_GROUPS = ['HRSG', 'Diverter', 'Shipbuilding', 'PV', 'Handling', 'Duct', 'Other'];
+
 SCREENS.pipeline = async function() {
-  const d = await api('/opportunities?limit=100');
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const stage = params.get('stage') || '';
+  const pg = params.get('product_group') || '';
+  const assignedTo = params.get('assigned_to') || '';
+
+  const qs = new URLSearchParams({ limit: '100' });
+  if (stage) qs.set('stage', stage);
+  if (pg) qs.set('product_group', pg);
+  if (assignedTo) qs.set('assigned_to', assignedTo);
+
+  const d = await api('/opportunities?' + qs.toString());
   return `
     <h1>Pipeline</h1>
+    <div class="toolbar">
+      <select id="opp-stage" onchange="filterOpps()">
+        <option value="">All stages</option>
+        ${['PROSPECT','CONTACTED','RFQ_RECEIVED','COSTING','QUOTED','NEGOTIATION','WON','LOST','IN_PROGRESS']
+          .map(s => `<option ${s===stage?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <select id="opp-pg" onchange="filterOpps()">
+        <option value="">All groups</option>
+        ${PRODUCT_GROUPS.map(g => `<option ${g===pg?'selected':''}>${g}</option>`).join('')}
+      </select>
+      <input id="opp-assigned" placeholder="Assigned to" value="${escapeHtml(assignedTo)}"
+             onkeydown="if(event.key==='Enter')filterOpps()" />
+      <div class="spacer"></div>
+      <button class="primary" onclick="oppCreateModal()">+ New Opportunity</button>
+    </div>
     <p class="muted">${d.total} total · showing ${d.items.length}</p>
     <table><thead><tr>
       <th>Project</th><th>Customer</th><th>Stage</th><th>Group</th>
@@ -575,42 +941,292 @@ SCREENS.pipeline = async function() {
     </tbody></table>
   `;
 };
+
+function filterOpps() {
+  const qs = new URLSearchParams();
+  const s = document.getElementById('opp-stage').value;
+  const pg = document.getElementById('opp-pg').value;
+  const a = document.getElementById('opp-assigned').value.trim();
+  if (s) qs.set('stage', s);
+  if (pg) qs.set('product_group', pg);
+  if (a) qs.set('assigned_to', a);
+  location.hash = '#pipeline' + (qs.toString() ? '?' + qs.toString() : '');
+  navigate('pipeline');
+}
+
+function oppCreateModal() {
+  openModal(`
+    <h2 style="margin-top:0">New Opportunity</h2>
+    <div class="form-row"><label>Project Name *</label><input id="no-name" /></div>
+    <div class="form-row"><label>Customer Name *</label><input id="no-cust" /></div>
+    <div class="form-row"><label>Customer ID (optional)</label><input id="no-cust-id" /></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>Product Group *</label>
+        <select id="no-pg">${PRODUCT_GROUPS.map(g => `<option>${g}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Stage</label>
+        <select id="no-stage"><option>PROSPECT</option><option>CONTACTED</option><option>RFQ_RECEIVED</option></select></div>
+      <div class="form-row"><label>Contract Value (USD)</label><input id="no-value" type="number" step="0.01" /></div>
+      <div class="form-row"><label>Win %</label><input id="no-win" type="number" min="0" max="100" value="50" /></div>
+      <div class="form-row"><label>Weight (tons)</label><input id="no-weight" type="number" step="0.01" /></div>
+      <div class="form-row"><label>Assigned To</label><input id="no-assigned" /></div>
+    </div>
+    <div class="form-row"><label>Notes</label><textarea id="no-notes"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitNewOpp()">Create</button>
+    </div>
+  `);
+}
+async function submitNewOpp() {
+  const name = document.getElementById('no-name').value.trim();
+  const cust = document.getElementById('no-cust').value.trim();
+  if (!name || !cust) { toast('Project name and customer name required', 'err'); return; }
+  try {
+    const r = await api('/opportunities', { method: 'POST', body: {
+      project_name: name,
+      customer_name: cust,
+      customer_id: document.getElementById('no-cust-id').value.trim() || null,
+      product_group: document.getElementById('no-pg').value,
+      stage: document.getElementById('no-stage').value,
+      contract_value_usd: Number(document.getElementById('no-value').value) || null,
+      win_probability: Number(document.getElementById('no-win').value) || 50,
+      assigned_to: document.getElementById('no-assigned').value.trim() || null,
+      notes: document.getElementById('no-notes').value.trim() || null,
+    }});
+    toast('Opportunity created', 'ok');
+    closeModal();
+    setTimeout(() => openOpportunity(r.id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
 async function openOpportunity(id) {
   const d = await api('/opportunities/' + id);
   const o = d.opportunity;
+  const allowed = d.allowed_next_stages || [];
+
+  // Stage transition button colour scheme — WON gets ok, LOST/CANCELLED get crit
+  const stageBtnClass = (s) => s === 'WON' ? 'primary' : (s === 'LOST' ? 'danger' : '');
+
   openModal(`
+    ${breadcrumb([{label: 'Pipeline', href: 'pipeline'}, {label: o.project_name || 'Opportunity'}])}
     <h2 style="margin-top:0">${escapeHtml(o.project_name||'')}</h2>
     <p class="muted">${escapeHtml(o.customer_name||'')} · ${escapeHtml(o.product_group||'')}</p>
-    <div class="grid grid-2">
-      <div><b class="muted">Stage:</b> ${statusPill(o.stage||'')}</div>
-      <div><b class="muted">Win:</b> ${o.win_probability||0}%</div>
-      <div><b class="muted">Value:</b> ${fmt(o.contract_value_usd, '$')}</div>
-      <div><b class="muted">Weight:</b> ${o.weight_ton||0} t</div>
-      <div><b class="muted">Assigned:</b> ${escapeHtml(o.assigned_to||'—')}</div>
-      <div><b class="muted">Signing:</b> ${escapeHtml(o.estimated_signing||'—')}</div>
+
+    <div class="tabs">
+      <button class="active" data-tab="info" onclick="activateTab(document.getElementById('modal-box'),'info')">Info</button>
+      <button data-tab="quotes" onclick="activateTab(document.getElementById('modal-box'),'quotes')">Quotations (${(d.quotation_revisions||[]).length})</button>
+      <button data-tab="tasks" onclick="activateTab(document.getElementById('modal-box'),'tasks')">Tasks (${(d.tasks||[]).length})</button>
+      <button data-tab="emails" onclick="activateTab(document.getElementById('modal-box'),'emails')">Emails (${(d.emails||[]).length})</button>
+      <button data-tab="milestones" onclick="activateTab(document.getElementById('modal-box'),'milestones')">Milestones (${(d.milestones||[]).length})</button>
     </div>
-    <p style="margin-top:8px"><b class="muted">Allowed next stages:</b>
-      ${(d.allowed_next_stages||[]).map(s => statusPill(s)).join(' ') || '—'}</p>
-    <h3>Milestones (${(d.milestones||[]).length})</h3>
-    ${(d.milestones||[]).length ? `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Planned</th></tr></thead>
-      <tbody>${(d.milestones||[]).slice(0,8).map(m => `<tr>
-        <td>${m.milestone_number}</td>
-        <td>${escapeHtml(m.title||'')}</td>
-        <td>${statusPill(m.invoice_status||'')}</td>
-        <td>${escapeHtml(m.planned_date||'')}</td>
-      </tr>`).join('')}</tbody></table>` : '<div class="empty">No milestones.</div>'}
-    <h3>Quotation Revisions (${(d.quotation_revisions||[]).length})</h3>
-    ${(d.quotation_revisions||[]).length ? `<table><tbody>${(d.quotation_revisions||[]).slice(0,5).map(r => `<tr>
-      <td>Rev ${r.revision_number}</td><td>${escapeHtml(r.revision_date||'')}</td>
-      <td class="right">${fmt(r.total_value_usd, '$')}</td><td>${escapeHtml(r.customer_response||'')}</td>
-    </tr>`).join('')}</tbody></table>` : '<div class="empty">No revisions.</div>'}
-    <div style="margin-top:16px;text-align:right"><button onclick="closeModal()">Close</button></div>
+
+    <!-- Info tab: editable -->
+    <div class="tab-panel active" data-tab="info">
+      <p><b class="muted">Current stage:</b> ${statusPill(o.stage||'')}</p>
+      ${allowed.length ? `<div class="stage-buttons">
+        <span class="muted">Move to:</span>
+        ${allowed.map(s => `<button class="${stageBtnClass(s)}" onclick="changeOppStage('${id}','${s}','${escapeHtml(o.stage||'')}')">${s}</button>`).join('')}
+      </div>` : '<p class="muted">Terminal stage — no further transitions.</p>'}
+
+      <div class="grid grid-2">
+        <div class="form-row"><label>Win %</label><input id="oi-win" type="number" min="0" max="100" value="${o.win_probability||0}" /></div>
+        <div class="form-row"><label>Contract Value (USD)</label><input id="oi-value" type="number" step="0.01" value="${o.contract_value_usd||''}" /></div>
+        <div class="form-row"><label>Assigned To</label><input id="oi-assigned" value="${escapeHtml(o.assigned_to||'')}" /></div>
+        <div class="form-row"><label>Estimated Signing</label><input id="oi-signing" value="${escapeHtml(o.estimated_signing||'')}" /></div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="oi-notes">${escapeHtml(o.notes||'')}</textarea></div>
+      <div style="text-align:right;margin-top:8px">
+        <button onclick="oppCreateQuotation('${id}')">+ Quotation</button>
+        <button onclick="oppCreateTask('${id}')">+ Task</button>
+        <button class="primary" onclick="saveOpp('${id}')">Save</button>
+      </div>
+    </div>
+
+    <!-- Quotations tab -->
+    <div class="tab-panel" data-tab="quotes">
+      ${(d.quotation_revisions||[]).length ? `<table><thead><tr><th>Rev</th><th>Date</th><th class="right">Value</th><th>Response</th></tr></thead><tbody>
+        ${(d.quotation_revisions||[]).map(r => `<tr>
+          <td>Rev ${r.revision_number}</td>
+          <td>${escapeHtml(r.revision_date||'')}</td>
+          <td class="right">${fmt(r.total_value_usd, '$')}</td>
+          <td>${escapeHtml(r.customer_response||'')}</td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No revisions yet.</div>'}
+      <div style="text-align:right;margin-top:12px">
+        <button class="primary" onclick="oppCreateQuotation('${id}')">+ Create Quotation from Opportunity</button>
+      </div>
+    </div>
+
+    <!-- Tasks tab -->
+    <div class="tab-panel" data-tab="tasks">
+      ${(d.tasks||[]).length ? `<table><thead><tr><th>Title</th><th>Status</th><th>Type</th><th>Assigned</th></tr></thead><tbody>
+        ${(d.tasks||[]).map(t => `<tr style="cursor:pointer" onclick="closeModal();setTimeout(()=>openTask('${t.id}'),50)">
+          <td>${escapeHtml(t.title||'')}</td>
+          <td>${statusPill(t.status||'')}</td>
+          <td>${escapeHtml(t.task_type||'')}</td>
+          <td>${escapeHtml(t.assigned_to||'')}</td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No tasks.</div>'}
+      <div style="text-align:right;margin-top:12px">
+        <button class="primary" onclick="oppCreateTask('${id}')">+ Create Task</button>
+      </div>
+    </div>
+
+    <!-- Emails tab -->
+    <div class="tab-panel" data-tab="emails">
+      ${(d.emails||[]).length ? `<table><tbody>
+        ${(d.emails||[]).map(e => `<tr style="cursor:pointer" onclick="closeModal();setTimeout(()=>openEmail('${e.id}'),50)">
+          <td>${escapeHtml((e.received_at||'').slice(0,10))}</td>
+          <td>${pill(e.email_type||'GENERAL', 'info')}</td>
+          <td>${escapeHtml(e.subject||'(no subject)')}</td>
+          <td class="muted">${escapeHtml(e.from_address||'')}</td>
+        </tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No emails linked.</div>'}
+    </div>
+
+    <!-- Milestones tab -->
+    <div class="tab-panel" data-tab="milestones">
+      ${(d.milestones||[]).length ? `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Planned</th><th class="right">Value</th></tr></thead>
+        <tbody>${(d.milestones||[]).map(m => `<tr>
+          <td>${m.milestone_number}</td>
+          <td>${escapeHtml(m.title||'')}</td>
+          <td>${statusPill(m.invoice_status||'')}</td>
+          <td>${escapeHtml(m.planned_date||'')}</td>
+          <td class="right">${fmt(m.invoice_amount_usd, '$')}</td>
+        </tr>`).join('')}</tbody></table>` : '<div class="empty">No milestones — auto-created when opportunity is WON.</div>'}
+    </div>
+
+    <div style="margin-top:16px;text-align:right">
+      <button onclick="closeModal()">Close</button>
+    </div>
   `);
 }
 
-// ─── Screen 5: Quotations ────────────────────────────────────────────
+async function changeOppStage(oppId, target, current) {
+  // LOST requires loss_reason — prompt before mutating.
+  let body = { stage: target };
+  if (target === 'LOST') {
+    const reason = prompt('Loss reason (required):');
+    if (!reason) { toast('Loss reason required', 'err'); return; }
+    const competitor = prompt('Competitor (optional):') || null;
+    body.loss_reason = reason;
+    body.competitor = competitor;
+  } else if (target === 'WON') {
+    if (!confirm(`Move to WON? This will auto-create a contract + 3 milestones + commission record.`)) return;
+  }
+  try {
+    const r = await api('/opportunities/' + oppId, { method: 'PATCH', body });
+    let msg = `Stage: ${current} → ${target}`;
+    if (r.side_effects && r.side_effects.contract_id) {
+      msg += ` · Contract auto-created (${r.side_effects.milestone_ids.length} milestones)`;
+    }
+    toast(msg, 'ok');
+    closeModal();
+    setTimeout(() => openOpportunity(oppId), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function saveOpp(oppId) {
+  try {
+    await api('/opportunities/' + oppId, { method: 'PATCH', body: {
+      win_probability: Number(document.getElementById('oi-win').value) || 0,
+      contract_value_usd: Number(document.getElementById('oi-value').value) || null,
+      assigned_to: document.getElementById('oi-assigned').value.trim() || null,
+      notes: document.getElementById('oi-notes').value.trim() || null,
+    }});
+    toast('Opportunity saved', 'ok');
+    closeModal();
+    setTimeout(() => openOpportunity(oppId), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function oppCreateQuotation(oppId) {
+  openModal(`
+    <h2 style="margin-top:0">Create Quotation from Opportunity</h2>
+    <p class="muted">Quotation pre-filled from opportunity. Override below if needed.</p>
+    <div class="form-row"><label>Value (USD)</label><input id="oq-value" type="number" step="0.01" /></div>
+    <div class="form-row"><label>Weight (ton)</label><input id="oq-weight" type="number" step="0.01" /></div>
+    <div class="form-row"><label>GP %</label><input id="oq-gp" type="number" step="0.01" /></div>
+    <div class="form-row"><label>Incharge</label><input id="oq-incharge" /></div>
+    <div class="form-row"><label>Scope of Work</label><textarea id="oq-scope"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitOppQuotation('${oppId}')">Create DRAFT</button>
+    </div>
+  `);
+}
+async function submitOppQuotation(oppId) {
+  try {
+    const r = await api('/opportunities/' + oppId + '/create-quotation', { method: 'POST', body: {
+      value_usd: Number(document.getElementById('oq-value').value) || null,
+      weight_ton: Number(document.getElementById('oq-weight').value) || null,
+      gp_percent: Number(document.getElementById('oq-gp').value) || null,
+      incharge: document.getElementById('oq-incharge').value.trim() || null,
+      scope_of_work: document.getElementById('oq-scope').value.trim() || null,
+    }});
+    toast(`Quotation #${r.quotation_no} created (DRAFT)`, 'ok');
+    closeModal();
+    setTimeout(() => openQuotation(r.id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function oppCreateTask(oppId) {
+  openModal(`
+    <h2 style="margin-top:0">Create Task from Opportunity</h2>
+    <div class="form-row"><label>Title *</label><input id="ot-title" /></div>
+    <div class="form-row"><label>Type *</label>
+      <select id="ot-type">
+        <option>CUSTOMER_FOLLOW_UP</option><option>COST_ESTIMATE</option><option>TECHNICAL_REVIEW</option>
+        <option>QUOTATION_REVIEW</option><option>CONTRACT_REVIEW</option><option>GENERAL</option>
+      </select></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>From Dept</label><input id="ot-from" value="SALE" /></div>
+      <div class="form-row"><label>To Dept</label><input id="ot-to" value="SALE" /></div>
+      <div class="form-row"><label>Assigned To</label><input id="ot-assigned" /></div>
+      <div class="form-row"><label>Priority</label>
+        <select id="ot-priority"><option>NORMAL</option><option>HIGH</option><option>URGENT</option><option>LOW</option></select></div>
+      <div class="form-row"><label>Due Date</label><input id="ot-due" type="date" /></div>
+      <div class="form-row"><label>SLA Hours</label><input id="ot-sla" type="number" /></div>
+    </div>
+    <div class="form-row"><label>Description</label><textarea id="ot-desc"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitOppTask('${oppId}')">Create</button>
+    </div>
+  `);
+}
+async function submitOppTask(oppId) {
+  const title = document.getElementById('ot-title').value.trim();
+  if (!title) { toast('Title required', 'err'); return; }
+  try {
+    const r = await api('/opportunities/' + oppId + '/create-task', { method: 'POST', body: {
+      title,
+      task_type: document.getElementById('ot-type').value,
+      from_dept: document.getElementById('ot-from').value || 'SALE',
+      to_dept: document.getElementById('ot-to').value || 'SALE',
+      assigned_to: document.getElementById('ot-assigned').value.trim() || null,
+      priority: document.getElementById('ot-priority').value,
+      due_date: document.getElementById('ot-due').value || null,
+      sla_hours: Number(document.getElementById('ot-sla').value) || null,
+      description: document.getElementById('ot-desc').value.trim() || null,
+    }});
+    toast('Task created', 'ok');
+    closeModal();
+    setTimeout(() => openTask(r.id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ─── Screen 5: Quotations (B15: status flow + filters + detail) ──
 SCREENS.quotations = async function() {
-  const d = await api('/quotations?limit=100');
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const status = params.get('status') || '';
+  const incharge = params.get('incharge') || '';
+
+  const qs = new URLSearchParams({ limit: '100' });
+  if (status) qs.set('status', status);
+  if (incharge) qs.set('incharge', incharge);
+
+  const d = await api('/quotations?' + qs.toString());
   const wr = await api('/quotations/win-rate').catch(() => null);
   return `
     <h1>Quotations</h1>
@@ -622,14 +1238,23 @@ SCREENS.quotations = async function() {
         <div class="sub">${fmt(wr.won_value_usd, '$')} won value</div></div>
     </div>` : ''}
     <div class="toolbar" style="margin-top:16px">
+      <select id="q-status" onchange="filterQuotes()">
+        <option value="">All statuses</option>
+        ${['DRAFT','SENT','NEGOTIATION','WON','LOST','EXPIRED']
+          .map(s => `<option ${s===status?'selected':''}>${s}</option>`).join('')}
+      </select>
+      <input id="q-incharge" placeholder="Incharge" value="${escapeHtml(incharge)}"
+             onkeydown="if(event.key==='Enter')filterQuotes()" />
+      <div class="spacer"></div>
       <button class="primary" onclick="quotationCreateModal()">+ New quotation</button>
       <button onclick="window.open(API_BASE + '/io/export/quotations')">Export CSV</button>
     </div>
+    <p class="muted">${d.total} total · showing ${d.items.length}</p>
     <table><thead><tr>
       <th>#</th><th>Project</th><th>Customer</th><th>Status</th>
       <th class="right">Value (USD)</th><th>Date</th><th>Incharge</th>
     </tr></thead><tbody>
-    ${d.items.slice(0, 50).map(q => `<tr>
+    ${d.items.map(q => `<tr style="cursor:pointer" onclick="openQuotation('${q.id}')">
       <td>${q.quotation_no}</td>
       <td>${escapeHtml(q.project_name||'')}</td>
       <td>${escapeHtml(q.customer_name||'')}</td>
@@ -641,6 +1266,111 @@ SCREENS.quotations = async function() {
     </tbody></table>
   `;
 };
+
+function filterQuotes() {
+  const qs = new URLSearchParams();
+  const s = document.getElementById('q-status').value;
+  const i = document.getElementById('q-incharge').value.trim();
+  if (s) qs.set('status', s);
+  if (i) qs.set('incharge', i);
+  location.hash = '#quotations' + (qs.toString() ? '?' + qs.toString() : '');
+  navigate('quotations');
+}
+
+async function openQuotation(id) {
+  const d = await api('/quotations/' + id);
+  const q = d.quotation || d;
+  const allowed = d.allowed_next_statuses || [];
+  const status = (q.status || 'DRAFT').toUpperCase();
+
+  // Workflow shortcuts buttons
+  const wfButton = (target, label, klass) =>
+    allowed.includes(target)
+      ? `<button class="${klass||''}" onclick="quoteAction('${id}','${target.toLowerCase()}','${escapeHtml(status)}')">${label}</button>`
+      : '';
+
+  openModal(`
+    ${breadcrumb([{label: 'Quotations', href: 'quotations'}, {label: `#${q.quotation_no} ${q.project_name || ''}`}])}
+    <h2 style="margin-top:0">Quotation #${q.quotation_no} <small class="muted">${escapeHtml(q.project_name||'')}</small></h2>
+    <p class="muted">${escapeHtml(q.customer_name||'')} · ${escapeHtml(q.product_type||'-')}</p>
+
+    <div class="grid grid-4">
+      <div class="card"><h3>Status</h3><div class="big">${statusPill(status)}</div></div>
+      <div class="card"><h3>Value (USD)</h3><div class="big">${fmt(q.value_usd, '$')}</div></div>
+      <div class="card"><h3>Weight</h3><div class="big">${q.weight_ton||0}<small class="muted"> t</small></div></div>
+      <div class="card"><h3>GP %</h3><div class="big">${q.gp_percent||0}%</div></div>
+    </div>
+
+    <div class="stage-buttons">
+      <span class="muted">Workflow:</span>
+      ${wfButton('SENT', 'Send', 'primary')}
+      ${wfButton('WON', 'Won', 'primary')}
+      ${wfButton('LOST', 'Lost', 'danger')}
+      ${wfButton('NEGOTIATION', 'Negotiate', '')}
+      ${wfButton('EXPIRED', 'Mark Expired', '')}
+      ${allowed.length === 0 ? '<span class="muted">Terminal — no further transitions.</span>' : ''}
+    </div>
+
+    <div class="grid grid-2" style="margin-top:12px">
+      <div class="form-row"><label>Value (USD)</label><input id="qi-value" type="number" step="0.01" value="${q.value_usd||''}" /></div>
+      <div class="form-row"><label>Weight (ton)</label><input id="qi-weight" type="number" step="0.01" value="${q.weight_ton||''}" /></div>
+      <div class="form-row"><label>Incharge</label><input id="qi-incharge" value="${escapeHtml(q.incharge||'')}" /></div>
+      <div class="form-row"><label>Owner</label><input id="qi-owner" value="${escapeHtml(q.owner||'')}" /></div>
+    </div>
+    <div class="form-row"><label>Remark</label><textarea id="qi-remark">${escapeHtml(q.remark||'')}</textarea></div>
+
+    ${q.opportunity_id ? `<p><b class="muted">Opportunity:</b>
+      <a href="#pipeline" onclick="closeModal();setTimeout(()=>openOpportunity('${q.opportunity_id}'),50);return false">View linked opportunity →</a></p>` : ''}
+
+    ${q.loss_reason ? `<p><b class="muted">Loss reason:</b> ${escapeHtml(q.loss_reason)}
+      ${q.competitor ? `· <b class="muted">Competitor:</b> ${escapeHtml(q.competitor)}` : ''}</p>` : ''}
+
+    <div style="text-align:right;margin-top:16px">
+      <button onclick="closeModal()">Close</button>
+      <button class="primary" onclick="saveQuote('${id}')">Save changes</button>
+    </div>
+  `);
+}
+
+async function quoteAction(id, action, current) {
+  let body = null;
+  if (action === 'lose') {
+    const reason = prompt('Loss reason (required):');
+    if (!reason) { toast('Loss reason required', 'err'); return; }
+    const competitor = prompt('Competitor (optional):') || null;
+    body = { loss_reason: reason, competitor };
+  } else if (action === 'win') {
+    if (!confirm('Mark WON? This cascades to the linked opportunity (auto contract + milestones).')) return;
+  }
+
+  try {
+    const r = await api(`/quotations/${id}/${action}`, { method: 'POST', body });
+    let msg = `Quotation marked ${r.status}`;
+    if (r.opportunity_side_effects) {
+      msg += ` · Opportunity also WON · contract created`;
+    } else if (r.suggest_opportunity_lost) {
+      msg += ` · All sibling quotes also LOST — consider closing the opportunity`;
+    }
+    toast(msg, 'ok');
+    closeModal();
+    setTimeout(() => openQuotation(id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function saveQuote(id) {
+  try {
+    await api('/quotations/' + id, { method: 'PATCH', body: {
+      value_usd: Number(document.getElementById('qi-value').value) || null,
+      weight_ton: Number(document.getElementById('qi-weight').value) || null,
+      incharge: document.getElementById('qi-incharge').value.trim() || null,
+      owner: document.getElementById('qi-owner').value.trim() || null,
+      remark: document.getElementById('qi-remark').value.trim() || null,
+    }});
+    toast('Quotation saved', 'ok');
+    closeModal();
+    setTimeout(() => openQuotation(id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
 function quotationCreateModal() {
   openModal(`
     <h2 style="margin-top:0">New Quotation (DRAFT)</h2>
@@ -680,27 +1410,191 @@ async function submitNewQuotation() {
   }
 }
 
-// ─── Screen 6: Tasks (Kanban) ────────────────────────────────────────
+// ─── Screen 6: Tasks Kanban (B16: drag-drop + new + filters) ─────
+const TASK_COLUMNS = ['PENDING', 'IN_PROGRESS', 'OVERDUE', 'COMPLETED', 'CANCELLED'];
+
 SCREENS.tasks = async function() {
-  const board = await api('/tasks/board');
-  const columns = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE'];
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const filterStatus = params.get('filter') || ''; // 'overdue' from dashboard click
+  const myOnly = params.get('my') === '1';
+
+  let path = '/tasks/board';
+  if (myOnly) {
+    // My tasks — flatten /tasks/my into board buckets.
+    const my = await api('/tasks/my');
+    const board = { PENDING: [], IN_PROGRESS: [], COMPLETED: [], OVERDUE: [], CANCELLED: [] };
+    (my.items || []).forEach(t => {
+      const s = (t.status || 'PENDING').toUpperCase();
+      if (board[s]) board[s].push(t);
+    });
+    return renderTaskBoard(board, { myOnly: true, filterStatus });
+  }
+  const board = await api(path);
+  return renderTaskBoard(board, { myOnly: false, filterStatus });
+};
+
+function renderTaskBoard(board, opts) {
+  const { myOnly, filterStatus } = opts || {};
   return `
-    <h1>Tasks</h1>
-    <div class="kanban">
-      ${columns.map(c => `
-        <div class="col">
-          <h3>${c} <span class="muted">(${(board[c]||[]).length})</span></h3>
-          ${(board[c]||[]).slice(0, 30).map(t => `
-            <div class="item">
-              <div><b>${escapeHtml(t.title||'')}</b></div>
-              <div class="muted">${escapeHtml(t.task_type||'')} · ${escapeHtml(t.assigned_to||'?')}</div>
-              ${t.due_date ? `<div class="muted">Due: ${escapeHtml(t.due_date.slice(0,10))}</div>` : ''}
-            </div>
-          `).join('') || '<div class="empty muted">empty</div>'}
+    <h1>Tasks ${myOnly ? '<small class="muted">— My queue</small>' : ''}</h1>
+    <div class="toolbar">
+      <button class="${myOnly?'primary':''}" onclick="location.hash='#tasks?my=1';navigate('tasks')">My Tasks</button>
+      <button class="${!myOnly?'primary':''}" onclick="location.hash='#tasks';navigate('tasks')">All Tasks</button>
+      <div class="spacer"></div>
+      <button class="primary" onclick="taskCreateModal()">+ New Task</button>
+    </div>
+    <p class="muted" style="font-size:11px">Tip: drag a card across columns to change its status. Invalid transitions show a toast and the card snaps back.</p>
+    <div class="kanban" id="task-board">
+      ${TASK_COLUMNS.map(col => `
+        <div class="col" data-col="${col}"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="dropTask(event,'${col}')">
+          <h3>${col} <span class="muted">(${(board[col]||[]).length})</span></h3>
+          ${(board[col]||[]).slice(0, 50).map(t => taskCard(t, col)).join('') || '<div class="empty muted">empty</div>'}
         </div>`).join('')}
     </div>
   `;
-};
+}
+
+function taskCard(t, col) {
+  return `
+    <div class="item" draggable="true"
+         data-task-id="${t.id}" data-current-status="${col}"
+         ondragstart="dragTaskStart(event)"
+         ondragend="this.classList.remove('dragging')"
+         onclick="openTask('${t.id}')">
+      <span class="priority ${t.priority||'NORMAL'}"></span>
+      <b>${escapeHtml(t.title||'(untitled)')}</b>
+      <div class="muted" style="font-size:11px">${escapeHtml(t.task_type||'')} · ${escapeHtml(t.assigned_to||'?')}</div>
+      ${t.due_date ? `<div class="muted" style="font-size:11px">Due: ${escapeHtml(t.due_date.slice(0,10))}</div>` : ''}
+    </div>
+  `;
+}
+
+function dragTaskStart(event) {
+  const card = event.currentTarget;
+  card.classList.add('dragging');
+  event.dataTransfer.setData('text/task-id', card.dataset.taskId);
+  event.dataTransfer.setData('text/current-status', card.dataset.currentStatus);
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+async function dropTask(event, targetCol) {
+  event.preventDefault();
+  const col = event.currentTarget;
+  col.classList.remove('drag-over');
+  const taskId = event.dataTransfer.getData('text/task-id');
+  const currentStatus = event.dataTransfer.getData('text/current-status');
+  if (!taskId || currentStatus === targetCol) return;
+
+  try {
+    const r = await api('/tasks/' + taskId, {
+      method: 'PATCH',
+      body: { status: targetCol },
+    });
+    toast(`Task moved: ${currentStatus} → ${targetCol}`, 'ok');
+    navigate('tasks');
+  } catch (e) {
+    toast(e.message || 'Invalid transition', 'err');
+    // No need to manually revert — the next render will show the original state
+  }
+}
+
+async function openTask(id) {
+  const d = await api('/tasks/' + id);
+  const t = d.task || d;
+  const allowed = d.allowed_next_statuses || [];
+
+  openModal(`
+    ${breadcrumb([{label: 'Tasks', href: 'tasks'}, {label: t.title || 'Task'}])}
+    <h2 style="margin-top:0">${escapeHtml(t.title||'(untitled)')}</h2>
+    <p class="muted">${escapeHtml(t.task_type||'')} · ${statusPill(t.status||'')}</p>
+
+    <div class="grid grid-2">
+      <div><b class="muted">Status:</b> ${statusPill(t.status||'')}</div>
+      <div><b class="muted">Priority:</b> ${escapeHtml(t.priority||'NORMAL')}</div>
+      <div><b class="muted">From:</b> ${escapeHtml(t.from_dept||'')}</div>
+      <div><b class="muted">To:</b> ${escapeHtml(t.to_dept||'')}</div>
+      <div><b class="muted">Assigned:</b> ${escapeHtml(t.assigned_to||'—')}</div>
+      <div><b class="muted">Due:</b> ${escapeHtml((t.due_date||'').slice(0,10))}</div>
+      <div><b class="muted">SLA hours:</b> ${t.sla_hours||'—'}</div>
+      <div><b class="muted">Escalations:</b> ${t.escalation_count||0}</div>
+    </div>
+    ${t.description ? `<p style="margin-top:12px"><b class="muted">Description:</b><br>${escapeHtml(t.description)}</p>` : ''}
+    ${t.opportunity_project ? `<p><b class="muted">Opportunity:</b>
+      <a href="#pipeline" onclick="closeModal();setTimeout(()=>openOpportunity('${t.opportunity_id}'),50);return false">${escapeHtml(t.opportunity_project)}</a> · ${escapeHtml(t.opportunity_customer||'')}</p>` : ''}
+    ${t.email_subject ? `<p><b class="muted">Linked email:</b> ${escapeHtml(t.email_subject)}</p>` : ''}
+
+    <div class="stage-buttons">
+      <span class="muted">Move to:</span>
+      ${allowed.length ? allowed.map(s =>
+        `<button class="${s==='COMPLETED'?'primary':(s==='CANCELLED'?'danger':'')}"
+                 onclick="changeTaskStatus('${id}','${s}')">${s}</button>`).join('') : '<span class="muted">Terminal state</span>'}
+    </div>
+
+    <div style="margin-top:16px;text-align:right">
+      <button onclick="closeModal()">Close</button>
+    </div>
+  `);
+}
+
+async function changeTaskStatus(id, target) {
+  try {
+    await api('/tasks/' + id, { method: 'PATCH', body: { status: target } });
+    toast(`Status: ${target}`, 'ok');
+    closeModal();
+    setTimeout(() => openTask(id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function taskCreateModal() {
+  openModal(`
+    <h2 style="margin-top:0">New Task</h2>
+    <div class="form-row"><label>Title *</label><input id="nt-title" /></div>
+    <div class="form-row"><label>Type *</label>
+      <select id="nt-type">
+        <option>CUSTOMER_FOLLOW_UP</option><option>COST_ESTIMATE</option><option>TECHNICAL_REVIEW</option>
+        <option>QUOTATION_REVIEW</option><option>CONTRACT_REVIEW</option><option>GENERAL</option>
+      </select></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>From Dept *</label><input id="nt-from" value="SALE" /></div>
+      <div class="form-row"><label>To Dept *</label><input id="nt-to" value="SALE" /></div>
+      <div class="form-row"><label>Assigned To</label><input id="nt-assigned" /></div>
+      <div class="form-row"><label>Priority</label>
+        <select id="nt-priority"><option>NORMAL</option><option>HIGH</option><option>URGENT</option><option>LOW</option></select></div>
+      <div class="form-row"><label>Opportunity ID (optional)</label><input id="nt-opp" /></div>
+      <div class="form-row"><label>Due Date</label><input id="nt-due" type="date" /></div>
+      <div class="form-row"><label>SLA hours</label><input id="nt-sla" type="number" /></div>
+    </div>
+    <div class="form-row"><label>Description</label><textarea id="nt-desc"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitNewTask()">Create</button>
+    </div>
+  `);
+}
+async function submitNewTask() {
+  const title = document.getElementById('nt-title').value.trim();
+  if (!title) { toast('Title required', 'err'); return; }
+  try {
+    const r = await api('/tasks', { method: 'POST', body: {
+      title,
+      task_type: document.getElementById('nt-type').value,
+      from_dept: document.getElementById('nt-from').value || 'SALE',
+      to_dept: document.getElementById('nt-to').value || 'SALE',
+      assigned_to: document.getElementById('nt-assigned').value.trim() || null,
+      priority: document.getElementById('nt-priority').value,
+      opportunity_id: document.getElementById('nt-opp').value.trim() || null,
+      due_date: document.getElementById('nt-due').value || null,
+      sla_hours: Number(document.getElementById('nt-sla').value) || null,
+      description: document.getElementById('nt-desc').value.trim() || null,
+    }});
+    toast('Task created', 'ok');
+    closeModal();
+    navigate('tasks');
+  } catch (e) { toast(e.message, 'err'); }
+}
 
 // ─── Screen 7: Search ────────────────────────────────────────────────
 SCREENS.search = async function() {
@@ -717,28 +1611,7 @@ SCREENS.search = async function() {
     ${q ? '<script>doSearch()</'+'script>' : ''}
   `;
 };
-async function doSearch() {
-  const q = document.getElementById('search-q').value.trim();
-  if (q.length < 2) return;
-  location.hash = '#search?q=' + encodeURIComponent(q);
-  const d = await api('/search?q=' + encodeURIComponent(q));
-  const out = document.getElementById('search-results');
-  if (!d.results.length) { out.innerHTML = '<div class="empty">No results.</div>'; return; }
-  out.innerHTML = `
-    <p class="muted">${d.total} hits — ${Object.entries(d.counts_by_type).map(([k,v]) => `${k}: ${v}`).join(' · ')}</p>
-    ${d.results.map(r => `
-      <a class="search-result" href="#${linkForResult(r)}">
-        <span class="type">${r.entity_type}</span>
-        <b>${escapeHtml(r.title||'')}</b>
-        <span class="muted"> — ${escapeHtml(r.subtitle||'')}</span>
-      </a>
-    `).join('')}
-  `;
-}
-function linkForResult(r) {
-  // For now, re-search-friendly hash. Click expansion can be added later.
-  return r.entity_type + '?id=' + r.entity_id;
-}
+// doSearch now lives further down (B18 drill-down version).
 function doQuickSearch() {
   const q = document.getElementById('quicksearch').value.trim();
   if (q) location.hash = '#search?q=' + encodeURIComponent(q);
@@ -777,6 +1650,477 @@ async function markAllRead() {
   navigate('notifications');
   refreshNotificationBell();
 }
+
+// ─── Screen 9: Emails — 3-panel layout (B17) ────────────────────────
+const EMAIL_TYPES = ['RFQ','TECHNICAL','NEGOTIATION','CONTRACT','PAYMENT','FOLLOWUP','INTERNAL','VENDOR','COMPLAINT','GENERAL'];
+
+SCREENS.emails = async function() {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const filter = params.get('filter') || '';
+  const type = params.get('type') || '';
+  const search = params.get('search') || '';
+
+  const qs = new URLSearchParams({ limit: '50' });
+  if (filter === 'unread') qs.set('is_read', 'false');
+  if (filter === 'unactioned') qs.set('is_actioned', 'false');
+  if (type) qs.set('email_type', type);
+  if (search) qs.set('search', search);
+
+  const d = await api('/emails?' + qs.toString());
+
+  return `
+    <h1>Emails</h1>
+    <div class="three-pane">
+      <!-- Filter pane -->
+      <div>
+        <h3 style="margin-top:0">Filters</h3>
+        <div class="form-row">
+          <label>Search</label>
+          <input id="em-search" value="${escapeHtml(search)}"
+                 placeholder="subject, body…"
+                 onkeydown="if(event.key==='Enter')filterEmails()" />
+        </div>
+        <div class="form-row">
+          <label>Type</label>
+          <select id="em-type" onchange="filterEmails()">
+            <option value="">All</option>
+            ${EMAIL_TYPES.map(t => `<option ${t===type?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <p class="muted" style="font-size:11px">Quick filters:</p>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button onclick="location.hash='#emails';navigate('emails')">All emails</button>
+          <button onclick="location.hash='#emails?filter=unread';navigate('emails')">Unread</button>
+          <button onclick="location.hash='#emails?filter=unactioned';navigate('emails')">Needs action</button>
+          <button onclick="location.hash='#emails?type=RFQ';navigate('emails')">RFQs only</button>
+        </div>
+      </div>
+
+      <!-- List pane -->
+      <div>
+        <p class="muted">${d.total} total · ${d.items.length} shown</p>
+        ${d.items.map(e => `
+          <div class="email-row ${e.is_read?'':'unread'}"
+               onclick="loadEmail('${e.id}', this)">
+            <div><b>${escapeHtml(e.subject||'(no subject)')}</b></div>
+            <div class="muted" style="font-size:11px">${escapeHtml(e.from_address||'')}</div>
+            <div class="muted" style="font-size:11px">${escapeHtml((e.received_at||'').slice(0,16))} · ${pill(e.email_type||'GENERAL', 'info')}</div>
+          </div>
+        `).join('') || '<div class="empty">No emails match.</div>'}
+      </div>
+
+      <!-- Detail pane -->
+      <div id="email-detail">
+        <p class="muted">Select an email to view…</p>
+      </div>
+    </div>
+  `;
+};
+
+function filterEmails() {
+  const qs = new URLSearchParams();
+  const search = document.getElementById('em-search').value.trim();
+  const type = document.getElementById('em-type').value;
+  if (search) qs.set('search', search);
+  if (type) qs.set('type', type);
+  location.hash = '#emails' + (qs.toString() ? '?' + qs.toString() : '');
+  navigate('emails');
+}
+
+async function loadEmail(id, rowEl) {
+  // Mark active row in list
+  document.querySelectorAll('.email-row').forEach(r => r.classList.remove('active'));
+  if (rowEl) rowEl.classList.add('active');
+  const target = document.getElementById('email-detail');
+  if (!target) return;
+  target.innerHTML = '<div class="skel"></div><div class="skel"></div>';
+  try {
+    const d = await api('/emails/' + id);
+    const e = d.email || d;
+    target.innerHTML = renderEmailDetail(e, d.thread || []);
+    // Mark read on open (best-effort, fail silent)
+    if (!e.is_read) {
+      api('/emails/' + id, { method: 'PATCH', body: { is_read: true } }).catch(() => {});
+    }
+  } catch (err) {
+    target.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderEmailDetail(e, thread) {
+  return `
+    <h3 style="margin-top:0">${escapeHtml(e.subject||'(no subject)')}</h3>
+    <p class="muted" style="font-size:12px">
+      From: <b>${escapeHtml(e.from_address||'')}</b><br>
+      To: ${escapeHtml(e.to_addresses||'')}<br>
+      ${e.cc_addresses ? 'CC: ' + escapeHtml(e.cc_addresses) + '<br>' : ''}
+      Received: ${escapeHtml((e.received_at||'').slice(0,16))} · ${pill(e.email_type||'GENERAL','info')}
+    </p>
+    <div class="toolbar" style="margin-bottom:12px">
+      <button onclick="emailToggleRead('${e.id}',${e.is_read?0:1})">${e.is_read?'Mark unread':'Mark read'}</button>
+      <button onclick="emailToggleActioned('${e.id}',${e.is_actioned?0:1})">${e.is_actioned?'Mark unactioned':'Mark actioned'}</button>
+      <button onclick="emailCreateOpp('${e.id}')">+ Opportunity</button>
+      <button onclick="emailCreateTask('${e.id}')">+ Task</button>
+      <button onclick="emailLinkOpp('${e.id}')">Link to Opportunity</button>
+    </div>
+    <pre style="white-space:pre-wrap;background:var(--bg-elev-2);padding:12px;border-radius:6px;font-size:12px">${escapeHtml((e.body_text||e.snippet||'').slice(0,5000))}</pre>
+    ${(thread||[]).length > 1 ? `<h4>Thread (${thread.length})</h4>
+      <ul style="font-size:12px">${thread.map(m => `<li>${escapeHtml(m.subject||'')} · ${escapeHtml((m.received_at||'').slice(0,10))}</li>`).join('')}</ul>` : ''}
+    ${e.opportunity_id ? `<p><b class="muted">Linked opportunity:</b>
+      <a href="#pipeline" onclick="setTimeout(()=>openOpportunity('${e.opportunity_id}'),50);return true">View →</a></p>` : ''}
+  `;
+}
+
+async function emailToggleRead(id, val) {
+  try { await api('/emails/' + id, { method: 'PATCH', body: { is_read: !!val } }); toast(val?'Marked read':'Marked unread','ok'); navigate('emails'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+async function emailToggleActioned(id, val) {
+  try { await api('/emails/' + id, { method: 'PATCH', body: { is_actioned: !!val } }); toast('Updated','ok'); navigate('emails'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+function emailCreateOpp(emailId) {
+  openModal(`
+    <h2 style="margin-top:0">Create Opportunity from Email</h2>
+    <p class="muted">Customer + project pre-filled from email. Override below if needed.</p>
+    <div class="form-row"><label>Project Name (override)</label><input id="eo-name" /></div>
+    <div class="form-row"><label>Product Group</label>
+      <select id="eo-pg">${PRODUCT_GROUPS.map(g => `<option>${g}</option>`).join('')}</select></div>
+    <div class="form-row"><label>Win %</label><input id="eo-win" type="number" min="0" max="100" value="30" /></div>
+    <div class="form-row"><label>Assigned To</label><input id="eo-assigned" /></div>
+    <div class="form-row"><label>Notes</label><textarea id="eo-notes"></textarea></div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitEmailToOpp('${emailId}')">Create</button>
+    </div>
+  `);
+}
+async function submitEmailToOpp(emailId) {
+  try {
+    const r = await api('/emails/' + emailId + '/create-opportunity', { method: 'POST', body: {
+      project_name: document.getElementById('eo-name').value.trim() || null,
+      product_group: document.getElementById('eo-pg').value,
+      win_probability: Number(document.getElementById('eo-win').value) || 30,
+      assigned_to: document.getElementById('eo-assigned').value.trim() || null,
+      notes: document.getElementById('eo-notes').value.trim() || null,
+    }});
+    toast(`Opportunity ${r.id} created (PROSPECT)`, 'ok');
+    closeModal();
+    setTimeout(() => openOpportunity(r.id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function emailCreateTask(emailId) {
+  openModal(`
+    <h2 style="margin-top:0">Create Task from Email</h2>
+    <div class="form-row"><label>Title *</label><input id="et-title" /></div>
+    <div class="form-row"><label>Type</label>
+      <select id="et-type">
+        <option>COST_ESTIMATE</option><option>TECHNICAL_REVIEW</option>
+        <option>CUSTOMER_FOLLOW_UP</option><option>QUOTATION_REVIEW</option>
+        <option>GENERAL</option>
+      </select></div>
+    <div class="grid grid-2">
+      <div class="form-row"><label>From Dept</label><input id="et-from" value="SALE" /></div>
+      <div class="form-row"><label>To Dept</label><input id="et-to" value="SALE" /></div>
+      <div class="form-row"><label>Assigned To</label><input id="et-assigned" /></div>
+      <div class="form-row"><label>Priority</label>
+        <select id="et-priority"><option>NORMAL</option><option>HIGH</option><option>URGENT</option></select></div>
+    </div>
+    <div style="text-align:right">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="primary" onclick="submitEmailToTask('${emailId}')">Create</button>
+    </div>
+  `);
+}
+async function submitEmailToTask(emailId) {
+  const title = document.getElementById('et-title').value.trim();
+  if (!title) { toast('Title required', 'err'); return; }
+  try {
+    await api('/emails/' + emailId + '/create-task', { method: 'POST', body: {
+      title,
+      task_type: document.getElementById('et-type').value,
+      from_dept: document.getElementById('et-from').value || 'SALE',
+      to_dept: document.getElementById('et-to').value || 'SALE',
+      assigned_to: document.getElementById('et-assigned').value.trim() || null,
+      priority: document.getElementById('et-priority').value,
+    }});
+    toast('Task created', 'ok');
+    closeModal();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function emailLinkOpp(emailId) {
+  const oppId = prompt('Opportunity ID to link to this email:');
+  if (!oppId) return;
+  api('/emails/' + emailId, { method: 'PATCH', body: { opportunity_id: oppId.trim() } })
+    .then(() => { toast('Email linked to opportunity', 'ok'); navigate('emails'); })
+    .catch(e => toast(e.message, 'err'));
+}
+
+function openEmail(id) {
+  navigate('emails');
+  setTimeout(() => loadEmail(id), 100);
+}
+
+// ─── Screen 10: Contracts (B19) ───────────────────────────────────
+SCREENS.contracts = async function() {
+  const d = await api('/contracts?limit=100');
+  return `
+    <h1>Contracts</h1>
+    <p class="muted">${d.total} total · showing ${d.items.length}</p>
+    <table><thead><tr>
+      <th>PO #</th><th>Customer</th><th>Project</th><th>Type</th><th>Status</th><th>Start</th>
+    </tr></thead><tbody>
+    ${d.items.map(c => `<tr style="cursor:pointer" onclick="openContract('${c.id}')">
+      <td>${escapeHtml(c.po_number||'')}</td>
+      <td>${escapeHtml(c.customer_name||'')}</td>
+      <td>${escapeHtml(c.project_name||'')}</td>
+      <td>${escapeHtml(c.product_type||'')}</td>
+      <td>${statusPill(c.contract_status||'')}</td>
+      <td>${escapeHtml((c.start_date||'').slice(0,10))}</td>
+    </tr>`).join('')}
+    </tbody></table>
+  `;
+};
+
+async function openContract(id) {
+  const d = await api('/contracts/' + id);
+  const c = d.contract || d;
+  const milestones = d.milestones || [];
+  const settlements = d.settlements || [];
+
+  openModal(`
+    ${breadcrumb([{label: 'Contracts', href: 'contracts'}, {label: c.po_number || 'Contract'}])}
+    <h2 style="margin-top:0">${escapeHtml(c.po_number||'')} <small class="muted">${escapeHtml(c.project_name||'')}</small></h2>
+    <p class="muted">${escapeHtml(c.customer_name||'')} · ${escapeHtml(c.product_type||'')}</p>
+
+    <div class="tabs">
+      <button class="active" data-tab="info" onclick="activateTab(document.getElementById('modal-box'),'info')">Info</button>
+      <button data-tab="milestones" onclick="activateTab(document.getElementById('modal-box'),'milestones')">Milestones (${milestones.length})</button>
+      <button data-tab="settlements" onclick="activateTab(document.getElementById('modal-box'),'settlements')">Settlements (${settlements.length})</button>
+    </div>
+
+    <div class="tab-panel active" data-tab="info">
+      <div class="grid grid-2">
+        <div><b class="muted">Status:</b> ${statusPill(c.contract_status||'')}</div>
+        <div><b class="muted">Start:</b> ${escapeHtml((c.start_date||'').slice(0,10))}</div>
+        <div><b class="muted">Latest activity:</b> ${escapeHtml((c.latest_activity||'').slice(0,10))}</div>
+        <div><b class="muted">PM:</b> ${escapeHtml(c.project_manager||'—')}</div>
+      </div>
+      ${c.value_notes ? `<p style="margin-top:8px"><b class="muted">Value notes:</b><br>${escapeHtml(c.value_notes)}</p>` : ''}
+      <div class="form-row" style="margin-top:12px"><label>Status</label>
+        <select id="ci-status">
+          ${['DRAFT','ACTIVE','IN_PROGRESS','ON_HOLD','COMPLETED','CLOSED','CANCELLED'].map(s => `<option ${c.contract_status===s?'selected':''}>${s}</option>`).join('')}
+        </select></div>
+      <div style="text-align:right">
+        <button class="primary" onclick="saveContract('${id}')">Save status</button>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-tab="milestones">
+      ${milestones.length ? `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Planned</th><th class="right">Amount</th></tr></thead>
+        <tbody>${milestones.map(m => `<tr>
+          <td>${m.milestone_number}</td>
+          <td>${escapeHtml(m.title||'')}</td>
+          <td>${statusPill(m.invoice_status||'')}</td>
+          <td>${escapeHtml((m.planned_date||'').slice(0,10))}</td>
+          <td class="right">${fmt(m.invoice_amount_usd, '$')}</td>
+        </tr>`).join('')}</tbody></table>` : '<div class="empty">No milestones.</div>'}
+    </div>
+
+    <div class="tab-panel" data-tab="settlements">
+      ${settlements.length ? `<table><thead><tr><th>Date</th><th>Status</th><th class="right">Planned</th><th class="right">Actual</th></tr></thead>
+        <tbody>${settlements.map(s => `<tr>
+          <td>${escapeHtml((s.settlement_date||'').slice(0,10))}</td>
+          <td>${statusPill(s.settlement_status||'')}</td>
+          <td class="right">${fmt(s.planned_value_usd, '$')}</td>
+          <td class="right">${fmt(s.actual_revenue_usd, '$')}</td>
+        </tr>`).join('')}</tbody></table>` : '<div class="empty">No settlement yet.</div>'}
+    </div>
+
+    <div style="margin-top:16px;text-align:right">
+      <button onclick="closeModal()">Close</button>
+    </div>
+  `);
+}
+
+async function saveContract(id) {
+  try {
+    await api('/contracts/' + id, { method: 'PATCH', body: {
+      contract_status: document.getElementById('ci-status').value,
+    }});
+    toast('Contract saved', 'ok');
+    closeModal();
+    setTimeout(() => openContract(id), 50);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ─── Screen 11: Reports (B12 frontend) ───────────────────────────
+SCREENS.reports = async function() {
+  const d = await api('/reports/configs');
+  return `
+    <h1>Reports</h1>
+    <div class="toolbar">
+      <button class="primary" onclick="seedReportConfigs()">+ Seed default configs</button>
+      <a href="/docs" target="_blank"><button>API Docs</button></a>
+    </div>
+    ${d.items && d.items.length ? `<table><thead><tr>
+      <th>Name</th><th>Type</th><th>Last run</th><th>Runs</th><th></th>
+    </tr></thead><tbody>
+    ${d.items.map(c => `<tr>
+      <td><b>${escapeHtml(c.report_name||'')}</b><div class="muted" style="font-size:11px">${escapeHtml(c.description||'')}</div></td>
+      <td>${pill(c.report_type||'', 'info')}</td>
+      <td>${escapeHtml((c.last_run_at||'never').slice(0,16))}</td>
+      <td>${c.run_count||0}</td>
+      <td>
+        <button onclick="runReport('${c.id}','json')">JSON</button>
+        <button onclick="runReport('${c.id}','csv')">CSV</button>
+        <button onclick="runReport('${c.id}','xlsx')">XLSX</button>
+      </td>
+    </tr>`).join('')}
+    </tbody></table>` : '<div class="empty">No report configs. Click "Seed default configs" to bootstrap.</div>'}
+  `;
+};
+
+async function seedReportConfigs() {
+  try {
+    const r = await api('/reports/configs/seed-defaults', { method: 'POST' });
+    toast(r.summary || 'Seeded', 'ok');
+    navigate('reports');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function runReport(configId, fmt) {
+  if (fmt === 'json') {
+    try {
+      const r = await api(`/reports/configs/${configId}/run?fmt=json`, { method: 'POST' });
+      const rows = r.rows || [];
+      openModal(`
+        <h2 style="margin-top:0">${escapeHtml(r.config_name||'Report')}</h2>
+        <p class="muted">${rows.length} rows · generated ${escapeHtml((r.generated_at||'').slice(0,16))}</p>
+        ${rows.length ? `<table><thead><tr>${Object.keys(rows[0]).map(k => `<th>${escapeHtml(k)}</th>`).join('')}</tr></thead><tbody>
+          ${rows.slice(0, 200).map(row => `<tr>${Object.values(row).map(v => `<td>${escapeHtml(typeof v === 'number' ? v.toString() : (v||''))}</td>`).join('')}</tr>`).join('')}
+        </tbody></table>${rows.length > 200 ? `<p class="muted">… and ${rows.length - 200} more rows. Download CSV for full data.</p>` : ''}` : '<div class="empty">No rows.</div>'}
+        <div style="text-align:right;margin-top:16px"><button onclick="closeModal()">Close</button></div>
+      `);
+    } catch (e) { toast(e.message, 'err'); }
+  } else {
+    // CSV / XLSX — open in new tab so the browser handles the download.
+    // Pass API key via fetch instead of GET param (key shouldn't be in URL).
+    try {
+      const r = await fetch(`${API_BASE}/reports/configs/${configId}/run?fmt=${fmt}`, {
+        method: 'POST',
+        headers: { 'X-API-Key': API_KEY },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // Server sets Content-Disposition; browser uses it for filename.
+      a.download = `report-${Date.now()}.${fmt}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(`Report downloaded (${fmt})`, 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  }
+}
+
+// ─── B18: Search drill-down + dashboard click-through ─────────────
+async function doSearch() {
+  const q = document.getElementById('search-q').value.trim();
+  if (q.length < 2) return;
+  location.hash = '#search?q=' + encodeURIComponent(q);
+  const d = await api('/search?q=' + encodeURIComponent(q));
+  const out = document.getElementById('search-results');
+  if (!d.results.length) { out.innerHTML = '<div class="empty">No results.</div>'; return; }
+  out.innerHTML = `
+    <p class="muted">${d.total} hits — ${Object.entries(d.counts_by_type).map(([k,v]) => `${k}: ${v}`).join(' · ')}</p>
+    ${d.results.map(r => `
+      <a class="search-result" href="javascript:void(0)" onclick="openSearchResult('${r.entity_type}','${r.entity_id}','${escapeHtml(r.entity_id_secondary||'')}')">
+        <span class="type">${r.entity_type}</span>
+        <b>${escapeHtml(r.title||'')}</b>
+        <span class="muted"> — ${escapeHtml(r.subtitle||'')}</span>
+      </a>
+    `).join('')}
+  `;
+}
+
+function openSearchResult(type, id, secondary) {
+  // B18: route search results to the correct screen + open detail.
+  const handlers = {
+    customer:    () => { navigate('customers'); setTimeout(() => openCustomer(id), 80); },
+    contact:     () => {
+      // Contacts open inside the parent customer 360.
+      const customerId = secondary || id;
+      navigate('customers'); setTimeout(() => openCustomer(customerId), 80);
+    },
+    opportunity: () => { navigate('pipeline'); setTimeout(() => openOpportunity(id), 80); },
+    quotation:   () => { navigate('quotations'); setTimeout(() => openQuotation(id), 80); },
+    email:       () => { openEmail(id); },
+    task:        () => { navigate('tasks'); setTimeout(() => openTask(id), 80); },
+    contract:    () => { navigate('contracts'); setTimeout(() => openContract(id), 80); },
+  };
+  (handlers[type] || (() => toast(`No drill-down for type: ${type}`, 'warn')))();
+}
+
+// Override notification bell to show dropdown instead of navigating
+let _notifDropdownOpen = false;
+async function showNotifDropdown(event) {
+  event.stopPropagation();
+  const dd = document.getElementById('notif-dropdown');
+  if (_notifDropdownOpen) { dd.classList.remove('open'); _notifDropdownOpen = false; return; }
+  dd.innerHTML = '<div style="padding:12px"><div class="skel"></div><div class="skel"></div></div>';
+  dd.classList.add('open');
+  _notifDropdownOpen = true;
+  try {
+    const d = await api('/notifications?limit=10');
+    if (!(d.items||[]).length) {
+      dd.innerHTML = '<div class="empty" style="padding:24px">No notifications.</div>';
+      return;
+    }
+    dd.innerHTML = (d.items || []).map(n => `
+      <div class="notif-item ${n.is_read?'':'unread'}"
+           onclick="handleNotifClick('${n.entity_type||''}','${n.entity_id||''}','${n.id}')">
+        <div><b>${escapeHtml(n.title||'')}</b></div>
+        <div class="muted" style="font-size:11px">${escapeHtml(n.message||'')}</div>
+        <div class="muted" style="font-size:10px">${escapeHtml((n.created_at||'').slice(0,16))}</div>
+      </div>
+    `).join('') + `<div style="padding:8px;text-align:center;border-top:1px solid var(--border)">
+      <a href="#" onclick="closeNotifDropdown();navigate('notifications');return false">View all →</a>
+    </div>`;
+  } catch (e) {
+    dd.innerHTML = `<div class="empty">${escapeHtml(e.message)}</div>`;
+  }
+}
+function closeNotifDropdown() {
+  document.getElementById('notif-dropdown').classList.remove('open');
+  _notifDropdownOpen = false;
+}
+async function handleNotifClick(entityType, entityId, notifId) {
+  closeNotifDropdown();
+  // Mark read in background.
+  api('/notifications/' + notifId + '/read', { method: 'PATCH' })
+    .then(refreshNotificationBell).catch(() => {});
+  // Drill into the source entity if we know its type.
+  if (entityType && entityId) {
+    openSearchResult(entityType, entityId, '');
+  } else {
+    navigate('notifications');
+  }
+}
+document.addEventListener('click', closeNotifDropdown);
+
+// Bind dropdown to bell on boot.
+(function bindBell(){
+  const bell = document.getElementById('notif-bell');
+  if (bell) {
+    bell.removeAttribute('onclick');
+    bell.addEventListener('click', showNotifDropdown);
+  }
+})();
 
 // ─── Boot ────────────────────────────────────────────────────────────
 tryAutoLogin();
