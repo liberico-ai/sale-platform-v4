@@ -311,11 +311,12 @@
     <h3>New Opportunity</h3>
     <form onsubmit="createOpp(event)">
       <div class="form-group"><label>Customer ID</label><input name="customer_id" required></div>
-      <div class="form-group"><label>Title</label><input name="title" required></div>
+      <div class="form-group"><label>Customer Name</label><input name="customer_name" required></div>
+      <div class="form-group"><label>Project Name</label><input name="project_name" required></div>
       <div class="form-group"><label>Product Group</label>
-        <select name="product_group"><option>STEEL_STRUCTURE</option><option>METAL_SHEET</option><option>PURLIN</option><option>ACCESSORY</option><option>MEP</option><option>SANDWICH_PANEL</option><option>OTHER</option></select>
+        <select name="product_group"><option>HRSG</option><option>Diverter</option><option>Shipbuilding</option><option>PV</option><option>Handling</option><option>Duct</option><option>Other</option></select>
       </div>
-      <div class="form-group"><label>Estimated Value (VND)</label><input name="estimated_value" type="number"></div>
+      <div class="form-group"><label>Contract Value (USD)</label><input name="contract_value_usd" type="number" step="0.01"></div>
       <div class="form-group"><label>Assigned To</label><input name="assigned_to" placeholder="user_id"></div>
       <div class="form-actions">
         <button type="button" class="btn btn-outline" onclick="closeModal('opp')">Cancel</button>
@@ -410,7 +411,7 @@ async function fetchData(type) {
     const r = await api('/api/v1/customers');
     if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#128101;</div><p>No customers yet</p></div>'; return; }
     el.innerHTML = `<table><thead><tr><th>Code</th><th>Name</th><th>Region</th><th>Status</th><th>Contact</th></tr></thead><tbody>${
-      r.data.items.map(c => `<tr><td><strong>${c.customer_code||'-'}</strong></td><td>${c.company_name||'-'}</td><td>${c.region||'-'}</td><td>${stageBadge(c.status||'ACTIVE')}</td><td>${c.primary_contact_email||'-'}</td></tr>`).join('')
+      r.data.items.map(c => `<tr><td><strong>${c.code||'-'}</strong></td><td>${c.name||'-'}</td><td>${c.region||'-'}</td><td>${stageBadge(c.status||'ACTIVE')}</td><td>${c.country||'-'}</td></tr>`).join('')
     }</tbody></table>`;
     document.getElementById('statCustomers').textContent = r.data.total || r.data.items.length;
   }
@@ -418,7 +419,7 @@ async function fetchData(type) {
     const r = await api('/api/v1/opportunities');
     if (!r.data || !r.data.items || r.data.items.length === 0) { el.innerHTML = '<div class="empty"><div class="icon">&#128176;</div><p>No opportunities yet. Create one!</p></div>'; return; }
     el.innerHTML = `<table><thead><tr><th>Title</th><th>Customer</th><th>Product</th><th>Value</th><th>Stage</th><th>Assigned</th></tr></thead><tbody>${
-      r.data.items.map(o => `<tr><td><strong>${o.title||'-'}</strong></td><td>${o.customer_id||'-'}</td><td><span class="badge badge-blue">${o.product_group||'-'}</span></td><td>${formatMoney(o.estimated_value)}</td><td>${stageBadge(o.stage)}</td><td>${o.assigned_to||'-'}</td></tr>`).join('')
+      r.data.items.map(o => `<tr><td><strong>${o.project_name||'-'}</strong></td><td>${o.customer_name||o.customer_id||'-'}</td><td><span class="badge badge-blue">${o.product_group||'-'}</span></td><td>${formatMoney(o.contract_value_usd)}</td><td>${stageBadge(o.stage)}</td><td>${o.assigned_to||'-'}</td></tr>`).join('')
     }</tbody></table>`;
     document.getElementById('statOpps').textContent = r.data.total || r.data.items.length;
   }
@@ -494,7 +495,7 @@ async function createOpp(e) {
   e.preventDefault();
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd);
-  if (body.estimated_value) body.estimated_value = Number(body.estimated_value);
+  if (body.contract_value_usd) body.contract_value_usd = Number(body.contract_value_usd);
   await api('/api/v1/opportunities', { method: 'POST', body: JSON.stringify(body) });
   closeModal('opp');
   fetchData('opportunities');

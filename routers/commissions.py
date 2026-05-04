@@ -20,11 +20,11 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write, require_admin
+    from ..auth import UserContext, get_current_writer, get_current_admin
     from ..services.audit import log_status_change, log_financial_change
 except ImportError:
     from database import query, execute
-    from auth import require_write, require_admin
+    from auth import UserContext, get_current_writer, get_current_admin
     from services.audit import log_status_change, log_financial_change
 
 logger = structlog.get_logger(__name__)
@@ -161,6 +161,8 @@ async def list_commissions(
 @router.get("/by-salesperson")
 async def commissions_by_salesperson(
     fiscal_year: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
 ):
     """Aggregate commissions per salesperson for a given FY (or all-time)."""
     where = ["1=1"]
@@ -168,6 +170,17 @@ async def commissions_by_salesperson(
     if fiscal_year:
         where.append("fiscal_year = ?")
         params.append(fiscal_year)
+
+    where_sql = " AND ".join(where)
+
+    total = query(
+        f"""
+        SELECT COUNT(DISTINCT salesperson) AS cnt
+        FROM sale_commissions
+        WHERE {where_sql}
+        """,
+        params,
+    )[0]["cnt"]
 
     rows = query(
         f"""
@@ -181,13 +194,20 @@ async def commissions_by_salesperson(
             SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END) AS paid_count,
             SUM(CASE WHEN status IN ('CALCULATED', 'APPROVED') THEN 1 ELSE 0 END) AS pending_count
         FROM sale_commissions
-        WHERE {' AND '.join(where)}
+        WHERE {where_sql}
         GROUP BY salesperson
         ORDER BY total_commission_usd DESC
+        LIMIT ? OFFSET ?
         """,
-        params,
+        params + [limit, offset],
     )
-    return {"fiscal_year": fiscal_year, "items": rows, "count": len(rows)}
+    return {
+        "fiscal_year": fiscal_year,
+        "total": total,
+        "items": rows,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/{commission_id}")
@@ -206,8 +226,11 @@ async def get_commission(commission_id: str):
     return {"commission": dict(item)}
 
 
-@router.post("/calculate", dependencies=[Depends(require_write)])
-async def calculate_commission(payload: CommissionCalculate):
+@router.post("/calculate")
+async def calculate_commission(
+    payload: CommissionCalculate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Compute + insert a commission row from an opportunity.
 
     Pulls contract_value_usd, gm_value_usd, gm_percent from the opportunity.
@@ -293,8 +316,11 @@ async def calculate_commission(payload: CommissionCalculate):
     }
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_commission(payload: CommissionCreate):
+@router.post("")
+async def create_commission(
+    payload: CommissionCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Manual commission entry. Use /calculate for auto-derived rows."""
     commission_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
@@ -316,8 +342,12 @@ async def create_commission(payload: CommissionCreate):
     return {"id": commission_id, "status": "CALCULATED"}
 
 
-@router.patch("/{commission_id}", dependencies=[Depends(require_write)])
-async def update_commission(commission_id: str, payload: CommissionUpdate):
+@router.patch("/{commission_id}")
+async def update_commission(
+    commission_id: str,
+    payload: CommissionUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update commission. status changes go through state machine, financial
     diffs go to audit log.
     """
@@ -339,8 +369,11 @@ async def update_commission(commission_id: str, payload: CommissionUpdate):
     new_status = data.get("status")
     if new_status and new_status != existing.get("status"):
         _validate(existing.get("status") or "CALCULATED", new_status)
-        log_status_change("commission", commission_id,
-                          existing.get("status") or "", new_status)
+        log_status_change(
+            "commission", commission_id,
+            existing.get("status") or "", new_status,
+            changed_by=user.actor,
+        )
         if new_status == "APPROVED" and not existing.get("approved_at"):
             data["approved_at"] = datetime.now().isoformat()
         if new_status == "PAID" and not existing.get("paid_at"):
@@ -351,7 +384,10 @@ async def update_commission(commission_id: str, payload: CommissionUpdate):
         if f in data and data[f] != existing.get(f):
             diffs[f] = (existing.get(f), data[f])
     if diffs:
-        log_financial_change("commission", commission_id, diffs)
+        log_financial_change(
+            "commission", commission_id, diffs,
+            changed_by=user.actor,
+        )
 
     sets = [f"{k} = ?" for k in data.keys()]
     sets.append("updated_at = ?")

@@ -18,10 +18,10 @@ from pydantic import BaseModel
 import structlog
 
 try:
-    from ..database import query, execute
+    from ..database import query, execute, now_expr, date_today_expr
     from ..auth import require_write
 except ImportError:
-    from database import query, execute
+    from database import query, execute, now_expr, date_today_expr
     from auth import require_write
 
 logger = structlog.get_logger(__name__)
@@ -63,11 +63,11 @@ def _build_where(filters: dict) -> tuple:
             continue
         if k == "overdue_only":
             if v:
-                where.append("(status = 'PENDING' AND next_follow_up < datetime('now'))")
+                where.append(f"(status = 'PENDING' AND next_follow_up < {now_expr()})")
             continue
         if k == "due_today":
             if v:
-                where.append("(status = 'PENDING' AND date(next_follow_up) = date('now'))")
+                where.append(f"(status = 'PENDING' AND date(next_follow_up) = {date_today_expr()})")
             continue
         where.append(f"{k} = ?")
         params.append(v)
@@ -119,21 +119,32 @@ async def list_follow_ups(
 
 
 @router.get("/overdue")
-async def list_overdue_followups(limit: int = Query(50, ge=1, le=200)):
+async def list_overdue_followups(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
     """Follow-ups with next_follow_up < now AND status = PENDING."""
+    total = query(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM sale_follow_up_schedules f
+        WHERE f.status = 'PENDING' AND f.next_follow_up < """ + now_expr() + """
+        """
+    )[0]["cnt"]
+
     items = query(
         """
         SELECT f.*, o.project_name, c.name AS customer_name
         FROM sale_follow_up_schedules f
         LEFT JOIN sale_opportunities o ON o.id = f.opportunity_id
         LEFT JOIN sale_customers c ON c.id = f.customer_id
-        WHERE f.status = 'PENDING' AND f.next_follow_up < datetime('now')
+        WHERE f.status = 'PENDING' AND f.next_follow_up < """ + now_expr() + """
         ORDER BY f.next_follow_up ASC
-        LIMIT ?
+        LIMIT ? OFFSET ?
         """,
-        [limit],
+        [limit, offset],
     )
-    return {"items": items, "count": len(items)}
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
 @router.post("", dependencies=[Depends(require_write)])

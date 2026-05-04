@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS sale_customer_contacts (
 );
 CREATE INDEX IF NOT EXISTS idx_scc_customer ON sale_customer_contacts(customer_id);
 
+-- Soft-delete column for contacts. ACTIVE | INACTIVE | DELETED.
+-- Added via ALTER (rule #1) — never modify the canonical CREATE TABLE.
+ALTER TABLE sale_customer_contacts ADD COLUMN status TEXT DEFAULT 'ACTIVE';
+CREATE INDEX IF NOT EXISTS idx_scc_status ON sale_customer_contacts(status);
+
 
 -- ── TABLE 3: sale_product_categories ──
 -- KHKD product groups: HRSG, DIVERTER, SHIP, PV, HANDLING, DUCT, OTHER
@@ -319,6 +324,12 @@ CREATE TABLE IF NOT EXISTS sale_user_roles (
 );
 CREATE INDEX IF NOT EXISTS idx_sur_dept ON sale_user_roles(department);
 CREATE INDEX IF NOT EXISTS idx_sur_active ON sale_user_roles(is_active);
+
+-- Per-user API key for audit attribution. Added via ALTER (not in CREATE)
+-- so we don't modify the canonical column set on existing deployments.
+-- Wrapped in an idempotent guard via build_db.py rebuild semantics.
+ALTER TABLE sale_user_roles ADD COLUMN api_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sur_api_key ON sale_user_roles(api_key);
 
 
 -- ── TABLE 14: sale_pm_sync_log ──
@@ -1036,6 +1047,15 @@ INSERT OR IGNORE INTO sale_user_roles (id, user_name, email, department, role, i
 ('usr-003', 'Hùng', 'hungbt@ibs.com.vn', 'KTKH', 'MEMBER', 1),
 ('usr-004', 'Paul', 'paul@ibs.com.vn', 'SALE', 'MEMBER', 1),
 ('usr-005', 'Ngoãn', 'ngoan@ibs.com.vn', 'SALE', 'MEMBER', 1);
+
+-- Demo users with seeded API keys (3-tier mapping for local dev/testing).
+-- Production keys MUST be rotated via env vars + DB update — these are
+-- placeholder secrets safe for the dev fixture only.
+INSERT OR IGNORE INTO sale_user_roles
+    (id, user_name, email, department, role, is_active, api_key) VALUES
+('usr-admin-001',   'Demo Admin',   'admin@ibs.com.vn',  'SALE', 'ADMIN',   1, 'admin-key-xxx'),
+('usr-manager-001', 'Demo Manager', 'sale@ibs.com.vn',   'SALE', 'MANAGER', 1, 'sale-key-xxx'),
+('usr-viewer-001',  'Demo Viewer',  'viewer@ibs.com.vn', 'SALE', 'MEMBER',  1, 'viewer-key-xxx');
 
 
 -- ═══════════════════════════════════════════════════════════════

@@ -14,15 +14,19 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, get_current_writer, get_current_admin
+    from ..errors import DuplicateError, EntityNotFoundError
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, get_current_writer, get_current_admin
+    from errors import DuplicateError, EntityNotFoundError
 
 try:
     from ..models.contact import CustomerContactCreate, CustomerContactUpdate
+    from ..services.audit import log_status_change
 except ImportError:
     from models.contact import CustomerContactCreate, CustomerContactUpdate
+    from services.audit import log_status_change
 
 logger = structlog.get_logger(__name__)
 
@@ -149,12 +153,15 @@ async def get_contact(contact_id: str):
     return {"contact": dict(item)}
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_contact(contact: CustomerContactCreate):
+@router.post("")
+async def create_contact(
+    contact: CustomerContactCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new customer contact.
 
-    Verifies customer exists. If is_primary=True, demotes any existing
-    primary contact for that customer first.
+    Verifies customer exists. Rejects duplicate (customer_id, email) pairs.
+    If is_primary=True, demotes any existing primary contact first.
     """
     customer = query(
         "SELECT id FROM sale_customers WHERE id = ?",
@@ -162,7 +169,20 @@ async def create_contact(contact: CustomerContactCreate):
         one=True,
     )
     if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        raise EntityNotFoundError("Customer", contact.customer_id)
+
+    # Email uniqueness *per customer* — global email reuse is fine because
+    # the same email can legitimately belong to one person at multiple
+    # customer rows in the imported data.
+    if contact.email:
+        clash = query(
+            "SELECT id FROM sale_customer_contacts "
+            "WHERE customer_id = ? AND LOWER(email) = LOWER(?)",
+            [contact.customer_id, contact.email],
+            one=True,
+        )
+        if clash:
+            raise DuplicateError("Contact", "email", contact.email)
 
     contact_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
@@ -198,8 +218,12 @@ async def create_contact(contact: CustomerContactCreate):
     return {"id": contact_id, "status": "ok", "message": f"Contact created: {contact.name}"}
 
 
-@router.patch("/{contact_id}", dependencies=[Depends(require_write)])
-async def update_contact(contact_id: str, update: CustomerContactUpdate):
+@router.patch("/{contact_id}")
+async def update_contact(
+    contact_id: str,
+    update: CustomerContactUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update an existing contact."""
     existing = query(
         "SELECT * FROM sale_customer_contacts WHERE id = ?",
@@ -237,3 +261,39 @@ async def update_contact(contact_id: str, update: CustomerContactUpdate):
     )
 
     return {"id": contact_id, "status": "ok"}
+
+
+@router.delete("/{contact_id}")
+async def soft_delete_contact(
+    contact_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    """Soft-delete a contact: set status='DELETED'. Admin only.
+
+    Hard delete is unsupported because email threads, interactions, and
+    quotation history may reference the contact ID via free-text fields.
+    """
+    existing = query(
+        "SELECT id, status FROM sale_customer_contacts WHERE id = ?",
+        [contact_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("Contact", contact_id)
+
+    if existing.get("status") == "DELETED":
+        return {"id": contact_id, "status": "already_deleted"}
+
+    execute(
+        "UPDATE sale_customer_contacts SET status = 'DELETED', is_primary = 0 "
+        "WHERE id = ?",
+        [contact_id],
+    )
+
+    log_status_change(
+        "contact", contact_id,
+        existing.get("status") or "", "DELETED",
+        changed_by=user.actor,
+    )
+
+    logger.info("contact_soft_deleted", contact_id=contact_id)
+    return {"id": contact_id, "status": "deleted"}

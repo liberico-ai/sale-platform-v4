@@ -6,9 +6,9 @@ Handles Email + Pipeline + Task management with PM integration.
 import os
 
 import structlog
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,6 +20,7 @@ try:
     from . import config
     from .database import init_db, close_db_connection, close_all_connections
     from .auth import require_auth, require_write, require_admin
+    from .errors import SalePlatformError
     from .routers import (
         health, auth_router,
         customers, opportunities, emails, tasks,
@@ -34,6 +35,7 @@ except ImportError:
     import config
     from database import init_db, close_db_connection, close_all_connections
     from auth import require_auth, require_write, require_admin
+    from errors import SalePlatformError
     from routers import (
         health, auth_router,
         customers, opportunities, emails, tasks,
@@ -59,6 +61,14 @@ async def lifespan(app: FastAPI):
     db_ok = init_db()
     if not db_ok:
         logger.warning("database_init_issues")
+
+    # Pull per-user API keys from sale_user_roles into the in-memory map
+    # used by require_auth. Safe no-op if the column hasn't been migrated.
+    try:
+        from .auth import sync_user_api_keys
+    except ImportError:
+        from auth import sync_user_api_keys
+    sync_user_api_keys()
 
     # Warn if running with dev fallback key
     if "dev-key-local-only" in config.API_KEYS:
@@ -162,6 +172,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(SalePlatformError)
+async def sale_platform_error_handler(request: Request, exc: SalePlatformError):
+    """Translate domain errors to a stable JSON contract."""
+    body = {"error": True, "code": exc.code, "message": exc.message}
+    if exc.details:
+        body["details"] = exc.details
+    return JSONResponse(status_code=exc.status_code, content=body)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    """Catch-all for unhandled errors — log and return generic 500."""
+    logger.exception("unhandled_error", path=str(request.url.path))
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred.",
+        },
+    )
+
 
 # Define dependency shortcuts
 auth_dep = [Depends(require_auth)]

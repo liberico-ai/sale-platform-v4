@@ -207,6 +207,8 @@ class EmailTemplateUpdate(BaseModel):
 async def list_email_templates(
     language: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
 ):
     where = []
     params: list = []
@@ -216,12 +218,17 @@ async def list_email_templates(
         where.append("is_active = ?"); params.append(1 if is_active else 0)
     where_sql = " AND ".join(where) if where else "1=1"
 
+    total = query(
+        f"SELECT COUNT(*) AS cnt FROM sale_email_templates WHERE {where_sql}",
+        params,
+    )[0]["cnt"]
+
     items = query(
         f"SELECT * FROM sale_email_templates WHERE {where_sql} "
-        f"ORDER BY template_type ASC",
-        params,
+        f"ORDER BY template_type ASC LIMIT ? OFFSET ?",
+        params + [limit, offset],
     )
-    return {"items": items, "count": len(items)}
+    return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
 @router.get("/email/{template_type}")

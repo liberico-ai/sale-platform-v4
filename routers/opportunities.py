@@ -15,7 +15,8 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, get_current_writer, get_current_admin
+    from ..errors import EntityNotFoundError
     from ..services.state_machine import (
         validate_opportunity_transition,
         get_allowed_opportunity_transitions,
@@ -28,7 +29,8 @@ try:
     )
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, get_current_writer, get_current_admin
+    from errors import EntityNotFoundError
     from services.state_machine import (
         validate_opportunity_transition,
         get_allowed_opportunity_transitions,
@@ -151,8 +153,11 @@ async def get_stale_deals(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_opportunity(opp: OpportunityCreate):
+@router.post("")
+async def create_opportunity(
+    opp: OpportunityCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new sales opportunity.
 
     Args:
@@ -186,8 +191,12 @@ async def create_opportunity(opp: OpportunityCreate):
     return {"id": opp_id, "status": "ok", "message": f"Opportunity created: {opp.project_name}"}
 
 
-@router.patch("/{opp_id}", dependencies=[Depends(require_write)])
-async def update_opportunity(opp_id: str, update: OpportunityUpdate):
+@router.patch("/{opp_id}")
+async def update_opportunity(
+    opp_id: str,
+    update: OpportunityUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update an existing opportunity with state machine validation.
 
     Stage changes are validated against allowed transitions.
@@ -230,7 +239,10 @@ async def update_opportunity(opp_id: str, update: OpportunityUpdate):
         params.append(update.stage)
 
         # Log status change
-        log_status_change("opportunity", opp_id, current_stage, update.stage)
+        log_status_change(
+            "opportunity", opp_id, current_stage, update.stage,
+            changed_by=user.actor,
+        )
 
         logger.info("opportunity_stage_changed",
                      opp_id=opp_id,
@@ -308,7 +320,10 @@ async def update_opportunity(opp_id: str, update: OpportunityUpdate):
 
     # Log financial changes to audit trail
     if financial_changes:
-        log_financial_change("opportunity", opp_id, financial_changes)
+        log_financial_change(
+            "opportunity", opp_id, financial_changes,
+            changed_by=user.actor,
+        )
 
     # Return current stage and allowed next transitions
     current_stage = update.stage or existing.get("stage", "PROSPECT")
@@ -320,6 +335,43 @@ async def update_opportunity(opp_id: str, update: OpportunityUpdate):
         "current_stage": current_stage,
         "allowed_next_stages": allowed_next,
     }
+
+
+@router.delete("/{opp_id}")
+async def soft_delete_opportunity(
+    opp_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
+    """Soft-delete an opportunity: set stage='DELETED'. Admin only.
+
+    Hard delete is unsupported because emails, tasks, follow-ups, and
+    audit history reference the opportunity ID.
+    """
+    existing = query(
+        "SELECT id, stage FROM sale_opportunities WHERE id = ?",
+        [opp_id], one=True,
+    )
+    if not existing:
+        raise EntityNotFoundError("Opportunity", opp_id)
+
+    if existing.get("stage") == "DELETED":
+        return {"id": opp_id, "status": "already_deleted"}
+
+    now_iso = datetime.now().isoformat()
+    execute(
+        "UPDATE sale_opportunities SET stage = 'DELETED', updated_at = ? "
+        "WHERE id = ?",
+        [now_iso, opp_id],
+    )
+
+    log_status_change(
+        "opportunity", opp_id,
+        existing.get("stage") or "", "DELETED",
+        changed_by=user.actor,
+    )
+
+    logger.info("opportunity_soft_deleted", opp_id=opp_id)
+    return {"id": opp_id, "status": "deleted"}
 
 
 @router.get("/{opp_id}")

@@ -15,12 +15,12 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, get_current_writer
     from ..services.audit import log_status_change
     from ..services.notify import write_notification
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, get_current_writer
     from services.audit import log_status_change
     from services.notify import write_notification
 
@@ -180,8 +180,11 @@ async def get_inter_dept_task(idt_id: str):
     return {"task": dict(item)}
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_inter_dept_task(payload: InterDeptCreate):
+@router.post("")
+async def create_inter_dept_task(
+    payload: InterDeptCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new cross-department task. Notifies the to_user when set."""
     idt_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
@@ -232,8 +235,12 @@ async def create_inter_dept_task(payload: InterDeptCreate):
             "message": f"Inter-dept task created: {payload.title}"}
 
 
-@router.patch("/{idt_id}", dependencies=[Depends(require_write)])
-async def update_inter_dept_task(idt_id: str, payload: InterDeptUpdate):
+@router.patch("/{idt_id}")
+async def update_inter_dept_task(
+    idt_id: str,
+    payload: InterDeptUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update an inter-dept task. Status transitions are validated.
 
     Auto-stamps started_at on first IN_PROGRESS, completed_at on COMPLETED,
@@ -257,8 +264,11 @@ async def update_inter_dept_task(idt_id: str, payload: InterDeptUpdate):
     new_status = data.get("status")
     if new_status and new_status != existing.get("status"):
         _validate(existing.get("status") or "PENDING", new_status)
-        log_status_change("inter_dept_task", idt_id,
-                          existing.get("status") or "", new_status)
+        log_status_change(
+            "inter_dept_task", idt_id,
+            existing.get("status") or "", new_status,
+            changed_by=user.actor,
+        )
 
         if new_status == "IN_PROGRESS" and not existing.get("started_at"):
             data["started_at"] = datetime.now().isoformat()
@@ -291,11 +301,12 @@ async def update_inter_dept_task(idt_id: str, payload: InterDeptUpdate):
     return {"id": idt_id, "status": "ok", "updated_fields": list(data.keys())}
 
 
-@router.post("/{idt_id}/escalate", dependencies=[Depends(require_write)])
+@router.post("/{idt_id}/escalate")
 async def escalate_inter_dept_task(
     idt_id: str,
     escalated_to: str = Query(..., description="User to escalate to"),
     reason: Optional[str] = Query(None),
+    user: UserContext = Depends(get_current_writer),
 ):
     """Escalate to a higher authority — flips is_escalated and writes a CRIT
     notification for the escalation target.

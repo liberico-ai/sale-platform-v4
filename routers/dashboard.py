@@ -3,15 +3,19 @@
 Provides executive-level view aligned with KHKD targets and product categories.
 """
 
-from fastapi import APIRouter, Query
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from datetime import datetime
 
 import structlog
 
 try:
     from ..database import query
+    from ..auth import UserContext, get_current_user
 except ImportError:
     from database import query
+    from auth import UserContext, get_current_user
 
 logger = structlog.get_logger(__name__)
 
@@ -639,15 +643,25 @@ async def get_summary():
 
 @router.get("/my")
 async def get_my_dashboard(
-    user: str = Query(..., description="Email or user_name to scope by"),
+    user: Optional[str] = Query(
+        None,
+        description="Override user identity (email/name). Defaults to "
+                    "the authenticated user from X-API-Key.",
+    ),
+    current: UserContext = Depends(get_current_user),
 ):
     """Personal dashboard for one Sale user.
 
-    Scopes by `user` against assigned_to / owner / incharge fields. Uses a
-    string match because the platform's user identity is loose today (the
-    same person may appear as 'Hiệu', 'hieunh@ibs.com.vn', or 'Hieu Nguyen'
-    across tables).
+    Resolves identity automatically from the X-API-Key (UNIFIED step 11),
+    falling back to the explicit ``user`` query param when supplied. The
+    field match is done against ``assigned_to / owner / incharge`` —
+    string match because legacy data uses inconsistent identifiers
+    (name vs email vs user_id) for the same operator.
     """
+    # Prefer authenticated identity; allow override for cross-team views
+    # where ADMIN looks at someone else's queue.
+    user = user or current.user_email or current.user_name or current.actor
+
     now_iso = datetime.now().isoformat()
 
     # My tasks

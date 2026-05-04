@@ -14,7 +14,7 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, get_current_writer
     from ..services.state_machine import (
         validate_task_transition,
         get_allowed_task_transitions,
@@ -23,7 +23,7 @@ try:
     from ..services.audit import log_status_change
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, get_current_writer
     from services.state_machine import (
         validate_task_transition,
         get_allowed_task_transitions,
@@ -189,8 +189,11 @@ async def get_my_tasks(
     return {"total": total, "items": items, "limit": limit, "offset": offset}
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_task(task: TaskCreate):
+@router.post("")
+async def create_task(
+    task: TaskCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new task with optional email activity logging.
 
     Args:
@@ -233,8 +236,12 @@ async def create_task(task: TaskCreate):
     return {"id": task_id, "status": "ok", "message": f"Task created: {task.title}"}
 
 
-@router.patch("/{task_id}", dependencies=[Depends(require_write)])
-async def update_task(task_id: str, update: TaskUpdate):
+@router.patch("/{task_id}")
+async def update_task(
+    task_id: str,
+    update: TaskUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update task with state machine validation for status changes.
 
     Auto-timestamps: started_at on IN_PROGRESS, completed_at on COMPLETED.
@@ -284,7 +291,10 @@ async def update_task(task_id: str, update: TaskUpdate):
             params.append(datetime.now().isoformat())
 
         # Audit log
-        log_status_change("task", task_id, current_status, update.status)
+        log_status_change(
+            "task", task_id, current_status, update.status,
+            changed_by=user.actor,
+        )
 
         logger.info("task_status_changed",
                      task_id=task_id,
@@ -321,8 +331,12 @@ async def update_task(task_id: str, update: TaskUpdate):
     }
 
 
-@router.post("/{task_id}/escalate", dependencies=[Depends(require_write)])
-async def escalate_task(task_id: str, escalate: TaskEscalate):
+@router.post("/{task_id}/escalate")
+async def escalate_task(
+    task_id: str,
+    escalate: TaskEscalate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Escalate a task by incrementing escalation_count.
 
     Args:

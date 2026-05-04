@@ -472,7 +472,7 @@ function renderFunnel(data) {
       const st = opp.stage || 'PROSPECT';
       if (!stageMap[st]) stageMap[st] = { count: 0, value: 0 };
       stageMap[st].count++;
-      stageMap[st].value += (opp.estimated_value || opp.weighted_value || 0);
+      stageMap[st].value += (opp.contract_value_usd || opp.weighted_value || 0);
     });
   }
 

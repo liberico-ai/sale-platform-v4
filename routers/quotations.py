@@ -9,13 +9,13 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
 
 import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, get_current_writer
+    from ..models.quotation import QuotationCreate, QuotationUpdate, QuotationRevise
     from ..services.state_machine import (
         validate_quotation_transition,
         get_allowed_quotation_transitions,
@@ -24,7 +24,8 @@ try:
     from ..services.audit import log_status_change, log_financial_change
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, get_current_writer
+    from models.quotation import QuotationCreate, QuotationUpdate, QuotationRevise
     from services.state_machine import (
         validate_quotation_transition,
         get_allowed_quotation_transitions,
@@ -38,70 +39,8 @@ router = APIRouter(prefix="/quotations", tags=["Quotations"])
 
 
 # ═══════════════════════════════════════════════════════════════
-# Pydantic models — local to this router
+# Pydantic models imported from models/quotation.py (rule #16)
 # ═══════════════════════════════════════════════════════════════
-
-class QuotationCreate(BaseModel):
-    """New quotation. Required: project_name, customer info or customer_id."""
-    project_name: str
-    customer_id: Optional[str] = None
-    customer_code: Optional[str] = None
-    customer_name: Optional[str] = None
-    country: Optional[str] = None
-    market: Optional[str] = None
-    product_type: Optional[str] = None
-    scope_of_work: Optional[str] = None
-    launch_date: Optional[str] = None
-    duration_months: Optional[float] = None
-    weight_ton: Optional[float] = None
-    price_usd_mt: Optional[float] = None
-    value_vnd: Optional[float] = None
-    value_usd: Optional[float] = None
-    gross_profit_usd: Optional[float] = None
-    gp_percent: Optional[float] = None
-    date_offer: Optional[str] = None
-    incharge: Optional[str] = None
-    remark: Optional[str] = None
-    owner: Optional[str] = None
-
-
-class QuotationUpdate(BaseModel):
-    """Update existing quotation. Status changes go through state machine."""
-    status: Optional[str] = None
-    customer_name: Optional[str] = None
-    project_name: Optional[str] = None
-    scope_of_work: Optional[str] = None
-    weight_ton: Optional[float] = None
-    price_usd_mt: Optional[float] = None
-    value_vnd: Optional[float] = None
-    value_usd: Optional[float] = None
-    gross_profit_usd: Optional[float] = None
-    gp_percent: Optional[float] = None
-    date_offer: Optional[str] = None
-    incharge: Optional[str] = None
-    remark: Optional[str] = None
-    owner: Optional[str] = None
-
-
-class QuotationRevise(BaseModel):
-    """Trigger a new revision. opportunity_id must be set on the parent
-    quotation OR explicitly here to attach the revision to an opportunity.
-    """
-    revision_reason: Optional[str] = None
-    opportunity_id: Optional[str] = None
-    weight_ton: Optional[float] = None
-    unit_price_usd: Optional[float] = None
-    total_value_usd: Optional[float] = None
-    total_value_vnd: Optional[float] = None
-    material_cost: Optional[float] = None
-    labor_cost: Optional[float] = None
-    overhead_cost: Optional[float] = None
-    gm_percent: Optional[float] = None
-    gm_value: Optional[float] = None
-    scope_summary: Optional[str] = None
-    valid_until: Optional[str] = None
-    sent_to: Optional[str] = None
-    notes: Optional[str] = None
 
 
 # Financial fields whose changes get audit-logged
@@ -308,8 +247,11 @@ def _next_quotation_no() -> int:
     return int(row.get("next_no") or 1)
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_quotation(payload: QuotationCreate):
+@router.post("")
+async def create_quotation(
+    payload: QuotationCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new quotation in DRAFT status.
 
     Either customer_id (canonical) or customer_code/customer_name (legacy)
@@ -382,8 +324,12 @@ async def create_quotation(payload: QuotationCreate):
     }
 
 
-@router.patch("/{quotation_id}", dependencies=[Depends(require_write)])
-async def update_quotation(quotation_id: str, payload: QuotationUpdate):
+@router.patch("/{quotation_id}")
+async def update_quotation(
+    quotation_id: str,
+    payload: QuotationUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update a quotation. Status changes are validated via state machine.
 
     Allowed transitions:
@@ -423,6 +369,7 @@ async def update_quotation(quotation_id: str, payload: QuotationUpdate):
         log_status_change(
             "quotation", quotation_id,
             existing.get("status") or "", new_status,
+            changed_by=user.actor,
         )
 
     # Audit financial diffs
@@ -431,7 +378,10 @@ async def update_quotation(quotation_id: str, payload: QuotationUpdate):
         if field in data and data[field] != existing.get(field):
             financial_diffs[field] = (existing.get(field), data[field])
     if financial_diffs:
-        log_financial_change("quotation", quotation_id, financial_diffs)
+        log_financial_change(
+            "quotation", quotation_id, financial_diffs,
+            changed_by=user.actor,
+        )
 
     sets = [f"{k} = ?" for k in data.keys()]
     params = list(data.values()) + [quotation_id]
@@ -450,8 +400,12 @@ async def update_quotation(quotation_id: str, payload: QuotationUpdate):
     }
 
 
-@router.post("/{quotation_id}/revise", dependencies=[Depends(require_write)])
-async def revise_quotation(quotation_id: str, payload: QuotationRevise):
+@router.post("/{quotation_id}/revise")
+async def revise_quotation(
+    quotation_id: str,
+    payload: QuotationRevise,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new revision row for a quotation.
 
     Writes to sale_quotation_revisions (opportunity-scoped). Either the

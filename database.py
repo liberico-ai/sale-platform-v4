@@ -4,9 +4,11 @@ Supports both SQLite and PostgreSQL with thread-local connections.
 Auto-initializes schema on first run (SQLite only).
 """
 
+import asyncio
 import os
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, List, Dict, Optional
 from contextlib import contextmanager
 
@@ -33,18 +35,25 @@ _PG_SCHEMA = os.path.join(_PROJECT_ROOT, "schema_pg.sql")
 
 
 def _get_pg_pool():
-    """Get or create PostgreSQL connection pool (lazy init)."""
+    """Get or create PostgreSQL connection pool (lazy init).
+
+    Uses ``ThreadedConnectionPool`` so getconn/putconn are safe to call
+    from FastAPI's threadpool workers and APScheduler background jobs
+    concurrently. ``SimpleConnectionPool`` (single-thread only) raises
+    ``PoolError`` under concurrent access — see psycopg2 docs.
+    """
     global _pg_pool
     if _pg_pool is None:
         from psycopg2 import pool as pg_pool
-        _pg_pool = pg_pool.SimpleConnectionPool(
+        _pg_pool = pg_pool.ThreadedConnectionPool(
             minconn=2,
             maxconn=int(os.getenv("PG_POOL_MAX", "10")),
             dsn=config.PG_DSN,
         )
         logger.info("pg_pool_created",
                      min=2,
-                     max=int(os.getenv("PG_POOL_MAX", "10")))
+                     max=int(os.getenv("PG_POOL_MAX", "10")),
+                     pool_type="ThreadedConnectionPool")
     return _pg_pool
 
 
@@ -97,6 +106,11 @@ def close_all_connections():
         _pg_pool.closeall()
         _pg_pool = None
         logger.info("pg_pool_closed")
+    # Drain the async-wrapper executor so the process can exit cleanly.
+    try:
+        _db_executor.shutdown(wait=False)
+    except Exception:
+        pass
 
 
 
@@ -120,6 +134,39 @@ def _convert_placeholders(sql: str, db_type: str) -> str:
     if db_type == "postgresql":
         sql = sql.replace("?", "%s")
     return sql
+
+
+# ═══════════════════════════════════════════════════════════════
+# Dialect helpers — dates / now / today (UNIFIED step 7)
+# ═══════════════════════════════════════════════════════════════
+# Workers and routers should call these instead of hardcoding
+# ``datetime('now')`` (SQLite) or ``NOW()`` (PostgreSQL). The helpers
+# read ``config.DB_TYPE`` at call time so a single codebase runs on
+# both engines.
+
+
+def now_expr() -> str:
+    """SQL expression for the current timestamp.
+
+    Use in SQL strings: ``UPDATE foo SET updated_at = {now_expr()}``.
+    """
+    return "NOW()" if config.DB_TYPE == "postgresql" else "datetime('now')"
+
+
+def date_today_expr() -> str:
+    """SQL expression for today's date (no time component)."""
+    return "CURRENT_DATE" if config.DB_TYPE == "postgresql" else "date('now')"
+
+
+def date_diff_expr(column: str, days: int) -> str:
+    """SQL boolean expression: ``column`` is older than ``days`` days.
+
+    Returns a complete predicate that goes inside a WHERE clause:
+        ``WHERE {date_diff_expr('last_activity_date', 30)}``
+    """
+    if config.DB_TYPE == "postgresql":
+        return f"{column} < NOW() - INTERVAL '{int(days)} days'"
+    return f"{column} < datetime('now', '-{int(days)} days')"
 
 
 def query(
@@ -172,6 +219,41 @@ def execute(sql: str, params: List[Any] = None) -> int:
         cursor.execute(sql, params)
         conn.commit()
         return cursor.rowcount
+
+
+# ═══════════════════════════════════════════════════════════════
+# Async wrappers (UNIFIED step 8)
+# ═══════════════════════════════════════════════════════════════
+# The sync ``query``/``execute`` functions block the event loop. Routers
+# under heavy concurrent load should call the async variants which run
+# on a dedicated thread pool. New code prefers these; existing routers
+# stay sync and keep working unchanged.
+
+_db_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db")
+
+
+async def async_query(
+    sql: str,
+    params: List[Any] = None,
+    one: bool = False,
+) -> Any:
+    """Async-friendly wrapper around :func:`query`. Runs on a worker thread."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_db_executor, _run_query, sql, params, one)
+
+
+async def async_execute(sql: str, params: List[Any] = None) -> int:
+    """Async-friendly wrapper around :func:`execute`."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_db_executor, _run_execute, sql, params)
+
+
+def _run_query(sql, params, one):
+    return query(sql, params, one)
+
+
+def _run_execute(sql, params):
+    return execute(sql, params)
 
 
 def execute_many(sql: str, params_list: List[List[Any]]) -> int:

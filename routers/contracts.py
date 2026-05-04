@@ -15,11 +15,11 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write
+    from ..auth import UserContext, get_current_writer
     from ..services.audit import log_status_change, log_financial_change
 except ImportError:
     from database import query, execute
-    from auth import require_write
+    from auth import UserContext, get_current_writer
     from services.audit import log_status_change, log_financial_change
 
 logger = structlog.get_logger(__name__)
@@ -508,8 +508,11 @@ def _resolve_opp_for_contract(contract: dict) -> Optional[str]:
     return opps[0]["id"] if len(opps) == 1 else None
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_active_contract(payload: ActiveContractCreate):
+@router.post("")
+async def create_active_contract(
+    payload: ActiveContractCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new active contract.
 
     If `quotation_id` is supplied, project_name + product_type + customer
@@ -592,8 +595,12 @@ async def create_active_contract(payload: ActiveContractCreate):
     }
 
 
-@router.patch("/{contract_id}", dependencies=[Depends(require_write)])
-async def update_active_contract(contract_id: str, payload: ActiveContractUpdate):
+@router.patch("/{contract_id}")
+async def update_active_contract(
+    contract_id: str,
+    payload: ActiveContractUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update an active contract. Status changes are audit-logged."""
     existing = query(
         "SELECT * FROM sale_active_contracts WHERE id = ?",
@@ -619,6 +626,7 @@ async def update_active_contract(contract_id: str, payload: ActiveContractUpdate
             "active_contract", contract_id,
             existing.get("contract_status") or "",
             data["contract_status"],
+            changed_by=user.actor,
         )
 
     now = datetime.now().isoformat()
@@ -635,11 +643,12 @@ async def update_active_contract(contract_id: str, payload: ActiveContractUpdate
             "updated_fields": list(data.keys())}
 
 
-@router.post(
-    "/{contract_id}/milestones",
-    dependencies=[Depends(require_write)],
-)
-async def create_milestone(contract_id: str, payload: MilestoneCreate):
+@router.post("/{contract_id}/milestones")
+async def create_milestone(
+    contract_id: str,
+    payload: MilestoneCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new milestone for an active contract.
 
     Milestones are FK'd to sale_opportunities (not sale_active_contracts).
@@ -713,11 +722,13 @@ async def create_milestone(contract_id: str, payload: MilestoneCreate):
     }
 
 
-@router.patch(
-    "/{contract_id}/milestones/{milestone_id}",
-    dependencies=[Depends(require_write)],
-)
-async def update_milestone(contract_id: str, milestone_id: str, payload: MilestoneUpdate):
+@router.patch("/{contract_id}/milestones/{milestone_id}")
+async def update_milestone(
+    contract_id: str,
+    milestone_id: str,
+    payload: MilestoneUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update a milestone. invoice_status / financial fields are audit-logged.
 
     contract_id is informational — the milestone resolves by milestone_id.
@@ -746,6 +757,7 @@ async def update_milestone(contract_id: str, milestone_id: str, payload: Milesto
             "milestone", milestone_id,
             existing.get("invoice_status") or "",
             data["invoice_status"],
+            changed_by=user.actor,
         )
 
     financial_diffs = {}
@@ -757,7 +769,10 @@ async def update_milestone(contract_id: str, milestone_id: str, payload: Milesto
         ):
             financial_diffs[field] = (existing.get(field), data[field])
     if financial_diffs:
-        log_financial_change("milestone", milestone_id, financial_diffs)
+        log_financial_change(
+            "milestone", milestone_id, financial_diffs,
+            changed_by=user.actor,
+        )
 
     now = datetime.now().isoformat()
     sets = [f"{k} = ?" for k in data.keys()]
@@ -773,11 +788,12 @@ async def update_milestone(contract_id: str, milestone_id: str, payload: Milesto
             "updated_fields": list(data.keys())}
 
 
-@router.post(
-    "/{contract_id}/settlements",
-    dependencies=[Depends(require_write)],
-)
-async def create_settlement(contract_id: str, payload: SettlementCreate):
+@router.post("/{contract_id}/settlements")
+async def create_settlement(
+    contract_id: str,
+    payload: SettlementCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create the settlement for a contract.
 
     sale_settlements has UNIQUE(opportunity_id) — only one per opportunity.

@@ -3,6 +3,18 @@ Pydantic models for IBS HI Sale Platform.
 Defines request/response schemas for all entities.
 """
 
+from .enums import (
+    OpportunityStage,
+    TaskStatus,
+    EmailType,
+    QuotationStatus,
+    FollowUpType,
+    NotificationType,
+    CommissionStatus,
+    CustomerStatus,
+    ContractStatus,
+    InvoiceStatus,
+)
 from .customer import CustomerCreate, CustomerUpdate, CustomerResponse
 from .opportunity import OpportunityCreate, OpportunityUpdate, OpportunityResponse
 from .email import EmailClassify, EmailLinkOpp, EmailResponse
@@ -21,7 +33,14 @@ from .interaction import (
     CustomerInteractionUpdate,
     CustomerInteractionResponse,
 )
-from .quotation import QuotationHistoryResponse, QuotationRevisionResponse
+from .quotation import (
+    QuotationCreate,
+    QuotationUpdate,
+    QuotationRevise,
+    QuotationResponse,
+    QuotationHistoryResponse,
+    QuotationRevisionResponse,
+)
 from .contract import (
     ActiveContractResponse,
     ContractMilestoneResponse,
@@ -31,6 +50,18 @@ from .contract import (
 from .intelligence import MarketSignalResponse, ProductOpportunityResponse
 
 __all__ = [
+    # Enums
+    "OpportunityStage",
+    "TaskStatus",
+    "EmailType",
+    "QuotationStatus",
+    "FollowUpType",
+    "NotificationType",
+    "CommissionStatus",
+    "CustomerStatus",
+    "ContractStatus",
+    "InvoiceStatus",
+    # Customer
     "CustomerCreate",
     "CustomerUpdate",
     "CustomerResponse",
@@ -59,6 +90,10 @@ __all__ = [
     "CustomerInteractionCreate",
     "CustomerInteractionUpdate",
     "CustomerInteractionResponse",
+    "QuotationCreate",
+    "QuotationUpdate",
+    "QuotationRevise",
+    "QuotationResponse",
     "QuotationHistoryResponse",
     "QuotationRevisionResponse",
     "ActiveContractResponse",

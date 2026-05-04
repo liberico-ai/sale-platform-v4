@@ -765,7 +765,7 @@ function searchOpportunities() {
   }
 
   var filtered = allOpportunities.filter(function(o) {
-    return (o.title && o.title.toLowerCase().indexOf(query) !== -1) ||
+    return (o.project_name && o.project_name.toLowerCase().indexOf(query) !== -1) ||
            (o.customer_name && o.customer_name.toLowerCase().indexOf(query) !== -1);
   }).slice(0, 10);
 
@@ -777,8 +777,8 @@ function searchOpportunities() {
 
   var html = '';
   filtered.forEach(function(o) {
-    html += '<div class="search-result-item" onclick="selectOpp(\'' + o.id + '\', \'' + escapeAttr(o.title || '-') + '\')">';
-    html += '  <div class="opp-title">' + (o.title || '-') + '</div>';
+    html += '<div class="search-result-item" onclick="selectOpp(\'' + o.id + '\', \'' + escapeAttr(o.project_name || '-') + '\')">';
+    html += '  <div class="opp-title">' + (o.project_name || '-') + '</div>';
     html += '  <div class="opp-stage">' + (o.stage || '-') + ' | ' + (o.customer_name || o.customer_id || '-') + '</div>';
     html += '</div>';
   });

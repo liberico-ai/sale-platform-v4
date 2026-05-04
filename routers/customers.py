@@ -12,12 +12,14 @@ import structlog
 
 try:
     from ..database import query, execute
-    from ..auth import require_write, require_admin
+    from ..auth import UserContext, get_current_writer, get_current_admin
+    from ..errors import DuplicateError, EntityNotFoundError
     from ..services.audit import log_status_change, log_change
     from ..models.customer import CustomerCreate, CustomerUpdate
 except ImportError:
     from database import query, execute
-    from auth import require_write, require_admin
+    from auth import UserContext, get_current_writer, get_current_admin
+    from errors import DuplicateError, EntityNotFoundError
     from services.audit import log_status_change, log_change
     from models.customer import CustomerCreate, CustomerUpdate
 
@@ -314,6 +316,106 @@ async def list_customer_contracts(customer_id: str):
     return {"customer_id": customer_id, "items": items, "count": len(items)}
 
 
+@router.get("/{customer_id}/timeline")
+async def customer_activity_timeline(
+    customer_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Unified activity timeline for a customer (UNIFIED step 10).
+
+    Merges interactions + emails + quotations + contracts into a single
+    chronologically sorted feed. Each event has the same shape so the
+    frontend can render them with one template.
+    """
+    customer = query(
+        "SELECT id, name FROM sale_customers WHERE id = ?",
+        [customer_id], one=True,
+    )
+    if not customer:
+        raise EntityNotFoundError("Customer", customer_id)
+
+    # UNION ALL across the four event sources, normalising columns:
+    #   event_type | title | description | event_date | entity_id
+    # COALESCE on date columns keeps the rows ordered consistently
+    # regardless of which source has the most-fresh timestamp.
+    rows = query(
+        """
+        SELECT * FROM (
+            SELECT
+                'interaction' AS event_type,
+                COALESCE(subject, interaction_type, 'INTERACTION') AS title,
+                summary AS description,
+                COALESCE(interaction_date, created_at) AS event_date,
+                id AS entity_id
+            FROM sale_customer_interactions
+            WHERE customer_id = ?
+
+            UNION ALL
+
+            SELECT
+                'email' AS event_type,
+                COALESCE(subject, '(no subject)') AS title,
+                snippet AS description,
+                COALESCE(received_at, created_at) AS event_date,
+                id AS entity_id
+            FROM sale_emails
+            WHERE customer_id = ?
+
+            UNION ALL
+
+            SELECT
+                'quotation' AS event_type,
+                COALESCE(project_name, 'Quotation #' || quotation_no) AS title,
+                'Status: ' || COALESCE(status, '?') ||
+                  ' | Value: ' || COALESCE(CAST(value_usd AS TEXT), '-') AS description,
+                COALESCE(date_offer, created_at) AS event_date,
+                id AS entity_id
+            FROM sale_quotation_history
+            WHERE customer_id = ?
+
+            UNION ALL
+
+            SELECT
+                'contract' AS event_type,
+                COALESCE(project_name, po_number, 'Contract') AS title,
+                'PO: ' || COALESCE(po_number, '-') ||
+                  ' | Status: ' || COALESCE(contract_status, '-') AS description,
+                COALESCE(latest_activity, start_date, created_at) AS event_date,
+                id AS entity_id
+            FROM sale_active_contracts
+            WHERE customer_id = ?
+        )
+        WHERE event_date IS NOT NULL
+        ORDER BY event_date DESC
+        LIMIT ? OFFSET ?
+        """,
+        [customer_id, customer_id, customer_id, customer_id, limit, offset],
+    )
+
+    total_row = query(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM sale_customer_interactions WHERE customer_id = ?)
+          + (SELECT COUNT(*) FROM sale_emails WHERE customer_id = ?)
+          + (SELECT COUNT(*) FROM sale_quotation_history WHERE customer_id = ?)
+          + (SELECT COUNT(*) FROM sale_active_contracts WHERE customer_id = ?)
+            AS cnt
+        """,
+        [customer_id, customer_id, customer_id, customer_id],
+        one=True,
+    ) or {}
+
+    return {
+        "customer_id": customer_id,
+        "customer_name": customer.get("name"),
+        "total": int(total_row.get("cnt") or 0),
+        "items": rows,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════
 # Writes — POST / PATCH / soft DELETE
 # ═══════════════════════════════════════════════════════════════
@@ -342,13 +444,27 @@ def _generate_code_from_name(name: str) -> str:
     return f"{letters}-{uuid.uuid4().hex[:6].upper()}"
 
 
-@router.post("", dependencies=[Depends(require_write)])
-async def create_customer(payload: CustomerCreate):
+@router.post("")
+async def create_customer(
+    payload: CustomerCreate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Create a new customer.
 
     Auto-generates a customer code when none is supplied.
-    Returns 409 when the requested code is already in use.
+    Rejects duplicate names (case-insensitive) and codes via DuplicateError.
     """
+    # Duplicate detection on name (case-insensitive). Mirrors what the team
+    # would otherwise enforce manually — see UNIFIED step 13.
+    name_clash = query(
+        "SELECT id, code FROM sale_customers "
+        "WHERE LOWER(name) = LOWER(?) AND status != 'DELETED'",
+        [payload.name],
+        one=True,
+    )
+    if name_clash:
+        raise DuplicateError("Customer", "name", payload.name)
+
     if payload.code:
         existing = query(
             "SELECT id FROM sale_customers WHERE code = ?",
@@ -356,10 +472,7 @@ async def create_customer(payload: CustomerCreate):
             one=True,
         )
         if existing:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Customer code already in use: {payload.code}",
-            )
+            raise DuplicateError("Customer", "code", payload.code)
         code = payload.code
     else:
         code = _generate_code_from_name(payload.name)
@@ -398,8 +511,12 @@ async def create_customer(payload: CustomerCreate):
     }
 
 
-@router.patch("/{customer_id}", dependencies=[Depends(require_write)])
-async def update_customer(customer_id: str, payload: CustomerUpdate):
+@router.patch("/{customer_id}")
+async def update_customer(
+    customer_id: str,
+    payload: CustomerUpdate,
+    user: UserContext = Depends(get_current_writer),
+):
     """Update an existing customer.
 
     Audit-logs status changes. Only fields explicitly set in the payload
@@ -429,10 +546,7 @@ async def update_customer(customer_id: str, payload: CustomerUpdate):
             one=True,
         )
         if clash:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Customer code already in use: {data['code']}",
-            )
+            raise DuplicateError("Customer", "code", data["code"])
 
     sets = [f"{k} = ?" for k in data.keys()]
     params = list(data.values()) + [datetime.now().isoformat(), customer_id]
@@ -447,13 +561,17 @@ async def update_customer(customer_id: str, payload: CustomerUpdate):
         log_status_change(
             "customer", customer_id,
             existing.get("status") or "", data["status"],
+            changed_by=user.actor,
         )
 
     return {"id": customer_id, "status": "ok", "updated_fields": list(data.keys())}
 
 
-@router.delete("/{customer_id}", dependencies=[Depends(require_admin)])
-async def soft_delete_customer(customer_id: str):
+@router.delete("/{customer_id}")
+async def soft_delete_customer(
+    customer_id: str,
+    user: UserContext = Depends(get_current_admin),
+):
     """Soft-delete: set status='DELETED', do NOT remove the row.
 
     Hard delete is intentionally unsupported — child records (opportunities,
@@ -479,6 +597,7 @@ async def soft_delete_customer(customer_id: str):
     log_status_change(
         "customer", customer_id,
         existing.get("status") or "", "DELETED",
+        changed_by=user.actor,
     )
 
     logger.info("customer_soft_deleted", customer_id=customer_id)
